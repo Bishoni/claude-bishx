@@ -1,6 +1,6 @@
 # bishx
 
-Full dev lifecycle plugin for [Claude Code](https://claude.ai/claude-code). Takes you from a raw idea to shipped code through a structured pipeline of AI agents.
+Full dev lifecycle plugin for [Claude Code](https://claude.com/product/claude-code). Takes you from a raw idea to shipped code through a structured pipeline of AI agents.
 
 ```
 idea → prompt → plan → tasks → code
@@ -27,8 +27,8 @@ Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
 
 ### Prerequisites
 
-- [Claude Code](https://claude.ai/claude-code) CLI
-- [bd (beads)](https://github.com/bishoni/bd) — local task tracker used for task decomposition and execution
+- [Claude Code](https://claude.com/product/claude-code) CLI
+- [bd (beads)](https://github.com/steveyegge/beads) — local task tracker used for task decomposition and execution
 
 ## Commands
 
