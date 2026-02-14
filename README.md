@@ -130,6 +130,14 @@ bishx/
     └── run/SKILL.md
 ```
 
+## Credits
+
+The planning stage (`/bishx:plan`, `/bishx:prompt`) is based on [beast-plan](https://github.com/malakhov-dmitrii/beast-plan) by Dmitrii Malakhov.
+
+## Credits
+
+The planning stage (`/bishx:plan`, `/bishx:prompt`) is based on [beast-plan](https://github.com/malakhov-dmitrii/beast-plan) by Dmitrii Malakhov.
+
 ## License
 
 MIT
