@@ -374,24 +374,79 @@ fi
 # MODE 2: bishx-run (task execution loop)
 # ============================================================
 
-# Cleanup tmux windows left behind by exited teammates (bare shell = agent exited)
-# Iterates ALL tmux sockets — Claude Code teammate socket names vary.
-_cleanup_tmux() {
-  local tmux_dir="/tmp/tmux-$(id -u)"
-  [[ -d "$tmux_dir" ]] || return 0
-  local sock_path sock_name
-  for sock_path in "$tmux_dir"/*; do
-    [[ -S "$sock_path" ]] || continue
-    sock_name=$(basename "$sock_path")
-    tmux -L "$sock_name" list-windows -a -F '#{session_name}:#{window_index} #{pane_current_command}' 2>/dev/null | while read -r line; do
-      local win cmd
-      win=$(echo "$line" | awk '{print $1}')
-      cmd=$(echo "$line" | awk '{print $NF}')
-      if [[ "$cmd" == "zsh" || "$cmd" == "bash" || "$cmd" == "sh" ]]; then
-        tmux -L "$sock_name" kill-window -t "$win" 2>/dev/null || true
-      fi
-    done || true
+# Cleanup dead teammate terminal tabs.
+# Claude Code runs teammates as separate TTY processes (iTerm2 tabs).
+# When a teammate exits, the tab stays open with a bare shell.
+# Strategy: track teammate TTYs while alive → close orphaned tabs via AppleScript after exit.
+_cleanup_dead_teammates() {
+  [[ -f "$RUN_STATE" ]] || return 0
+
+  # Get team name from state
+  local team_name
+  team_name=$(jq -r '.team_name // ""' "$RUN_STATE" 2>/dev/null || echo "")
+  [[ -n "$team_name" && "$team_name" != "null" ]] || return 0
+
+  # Find TTYs with active teammate processes (--team-name flag)
+  local active_teammate_ttys
+  active_teammate_ttys=$(ps -eo tty=,args= 2>/dev/null \
+    | grep -- "--team-name $team_name" \
+    | grep -v grep \
+    | awk '{print $1}' \
+    | sort -u || true)
+
+  if [[ -n "$active_teammate_ttys" ]]; then
+    # Teammates still running → record their TTYs for future cleanup, don't kill
+    local ttys_json
+    ttys_json=$(echo "$active_teammate_ttys" | jq -R . | jq -s .)
+    jq ".teammate_ttys = $ttys_json" "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
+    return 0
+  fi
+
+  # No active teammates → check recorded TTYs for orphaned shells
+  local recorded_ttys
+  recorded_ttys=$(jq -r '.teammate_ttys // [] | .[]' "$RUN_STATE" 2>/dev/null || true)
+  [[ -n "$recorded_ttys" ]] || return 0
+
+  # Get lead's TTY — never touch it
+  local my_tty
+  my_tty=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ' || echo "")
+
+  local ttys_to_close=""
+  local tty
+  for tty in $recorded_ttys; do
+    # Skip lead's own TTY
+    [[ "$tty" == "$my_tty" ]] && continue
+
+    # Double-check: skip if ANY claude process still runs on this TTY
+    if ps -eo tty=,args= 2>/dev/null | awk -v t="$tty" '$1 == t' | grep -q "claude"; then
+      continue
+    fi
+
+    # Convert ps TTY format (ttys003) to device path (/dev/ttys003)
+    ttys_to_close="${ttys_to_close} /dev/${tty}"
   done
+
+  # Close orphaned tabs via iTerm2 AppleScript API
+  if [[ -n "$ttys_to_close" ]]; then
+    for tty_path in $ttys_to_close; do
+      osascript -e "
+        tell application \"iTerm2\"
+          repeat with w in windows
+            repeat with t in tabs of w
+              repeat with s in sessions of t
+                if tty of s is \"$tty_path\" then
+                  close s
+                end if
+              end repeat
+            end repeat
+          end repeat
+        end tell
+      " 2>/dev/null || true
+    done
+  fi
+
+  # Clear recorded TTYs after cleanup
+  jq '.teammate_ttys = []' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
 }
 
 if [[ -f "$RUN_STATE" ]]; then
@@ -402,21 +457,21 @@ if [[ -f "$RUN_STATE" ]]; then
     CURRENT_TASK=$(jq -r '.current_task // ""' "$RUN_STATE")
     MODE=$(jq -r '.mode // "full"' "$RUN_STATE")
 
-    # Signal: complete — allow exit + tmux cleanup
+    # Signal: complete — allow exit + cleanup dead teammate tabs
     if echo "$LAST_OUTPUT" | grep -q "<bishx-complete>"; then
-      _cleanup_tmux
+      _cleanup_dead_teammates
       jq '.active = false' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
       exit 0
     fi
 
-    # Session is paused — cleanup + allow exit
+    # Session is paused — cleanup dead teammate tabs + allow exit
     if [[ "$PAUSED" == "true" ]]; then
-      _cleanup_tmux
+      _cleanup_dead_teammates
       exit 0
     fi
 
-    # Cleanup: kill tmux windows where the agent exited (shell left behind)
-    _cleanup_tmux
+    # Cleanup dead teammate tabs (shell left behind after agent exit)
+    _cleanup_dead_teammates
 
     # Active session, not paused, no complete signal → keep the loop alive
     COMPLETED=$(jq -r '.completed_tasks | length' "$RUN_STATE" 2>/dev/null || echo "0")
