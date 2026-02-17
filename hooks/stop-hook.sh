@@ -193,9 +193,9 @@ HEREDOC
 BISHX-PLAN: Plan APPROVED by the Critic! Now FINALIZE.
 
 1. Read the approved plan from \`.bishx-plan/iterations/${ITER_DIR}/PLAN.md\`
-2. Copy it to \`.bishx-plan/FINAL-PLAN.md\`
-3. Also write a plan-mode compatible version to a file the user can use:
-   - Create \`~/.claude/plans/bishx-plan-\$(date +%Y%m%d-%H%M%S).md\` with the plan content
+2. Generate filename with datetime: \`plan-\$(date +%Y-%m-%d-%H%M%S).md\`
+3. Copy it to \`.bishx-plan/{filename}\`
+4. Also write to \`~/.claude/plans/{filename}\`
 4. Present the final plan to the human with:
    - Total iterations: ${ITERATION}
    - Final score and breakdown from \`.bishx-plan/iterations/${ITER_DIR}/CRITIC-REPORT.md\`
@@ -373,6 +373,23 @@ fi
 # ============================================================
 # MODE 2: bishx-run (task execution loop)
 # ============================================================
+
+# Cleanup tmux windows left behind by exited teammates (bare shell = agent exited)
+_cleanup_tmux() {
+  local sock
+  sock=$(ls /tmp/tmux-$(id -u)/ 2>/dev/null | grep claude-swarm | head -1 || true)
+  if [[ -n "$sock" ]]; then
+    tmux -L "$sock" list-windows -a -F '#{session_name}:#{window_index} #{pane_current_command}' 2>/dev/null | while read -r line; do
+      local win cmd
+      win=$(echo "$line" | awk '{print $1}')
+      cmd=$(echo "$line" | awk '{print $NF}')
+      if [[ "$cmd" == "zsh" || "$cmd" == "bash" || "$cmd" == "sh" ]]; then
+        tmux -L "$sock" kill-window -t "$win" 2>/dev/null || true
+      fi
+    done || true
+  fi
+}
+
 if [[ -f "$RUN_STATE" ]]; then
   RUN_ACTIVE=$(jq -r '.active // false' "$RUN_STATE")
   if [[ "$RUN_ACTIVE" == "true" ]]; then
@@ -381,37 +398,34 @@ if [[ -f "$RUN_STATE" ]]; then
     CURRENT_TASK=$(jq -r '.current_task // ""' "$RUN_STATE")
     MODE=$(jq -r '.mode // "full"' "$RUN_STATE")
 
-    # Signal: complete — allow exit
+    # Signal: complete — allow exit + tmux cleanup
     if echo "$LAST_OUTPUT" | grep -q "<bishx-complete>"; then
+      _cleanup_tmux
       jq '.active = false' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
       exit 0
     fi
 
-    # Session is paused — allow exit
+    # Session is paused — cleanup + allow exit
     if [[ "$PAUSED" == "true" ]]; then
+      _cleanup_tmux
       exit 0
     fi
 
+    # Cleanup: kill tmux windows where the agent exited (shell left behind)
+    _cleanup_tmux
+
     # Active session, not paused, no complete signal → keep the loop alive
     COMPLETED=$(jq -r '.completed_tasks | length' "$RUN_STATE" 2>/dev/null || echo "0")
-    PROMPT="BISHX-RUN: Session active. Continue the main loop.
+    WAITING_FOR=$(jq -r '.waiting_for // ""' "$RUN_STATE" 2>/dev/null || echo "")
 
-You are the Lead orchestrator. DO NOT stop.
-
-Current state:
-- Mode: ${MODE}
-- Current task: ${CURRENT_TASK:-none}
-- Completed tasks: ${COMPLETED}
-- Paused: ${PAUSED}
-
-Actions:
-1. Read .omc/state/bishx-run-context.md for full context
-2. Read .omc/state/bishx-run-state.json for current state
-3. Run \`bd ready\` to check available tasks
-4. Continue the loop from where you left off
-5. If no tasks available and no pending work → idle (wait for Operator messages)
-
-REMEMBER: You are the ORCHESTRATOR. Do NOT edit files. Do NOT run tests. Do NOT review code. Only: Read, SendMessage, bd commands, git status/log, state updates."
+    if [[ -n "$WAITING_FOR" && "$WAITING_FOR" != "null" ]]; then
+      # Lead is WAITING for a teammate → allow stop, teammate's SendMessage
+      # will be delivered automatically as a new turn
+      exit 0
+    else
+      # Lead is NOT waiting → short nudge to continue
+      PROMPT="BISHX-RUN: Do not stop. Continue from where you left off. Current task: ${CURRENT_TASK:-none}."
+    fi
 
     jq -n --arg reason "$PROMPT" '{"decision": "block", "reason": $reason}'
     exit 0
