@@ -375,19 +375,23 @@ fi
 # ============================================================
 
 # Cleanup tmux windows left behind by exited teammates (bare shell = agent exited)
+# Iterates ALL tmux sockets — Claude Code teammate socket names vary.
 _cleanup_tmux() {
-  local sock
-  sock=$(ls /tmp/tmux-$(id -u)/ 2>/dev/null | grep claude-swarm | head -1 || true)
-  if [[ -n "$sock" ]]; then
-    tmux -L "$sock" list-windows -a -F '#{session_name}:#{window_index} #{pane_current_command}' 2>/dev/null | while read -r line; do
+  local tmux_dir="/tmp/tmux-$(id -u)"
+  [[ -d "$tmux_dir" ]] || return 0
+  local sock_path sock_name
+  for sock_path in "$tmux_dir"/*; do
+    [[ -S "$sock_path" ]] || continue
+    sock_name=$(basename "$sock_path")
+    tmux -L "$sock_name" list-windows -a -F '#{session_name}:#{window_index} #{pane_current_command}' 2>/dev/null | while read -r line; do
       local win cmd
       win=$(echo "$line" | awk '{print $1}')
       cmd=$(echo "$line" | awk '{print $NF}')
       if [[ "$cmd" == "zsh" || "$cmd" == "bash" || "$cmd" == "sh" ]]; then
-        tmux -L "$sock" kill-window -t "$win" 2>/dev/null || true
+        tmux -L "$sock_name" kill-window -t "$win" 2>/dev/null || true
       fi
     done || true
-  fi
+  done
 }
 
 if [[ -f "$RUN_STATE" ]]; then
