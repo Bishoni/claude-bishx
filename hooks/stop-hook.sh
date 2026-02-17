@@ -401,6 +401,10 @@ _cleanup_dead_teammates() {
   # Merge: stored + live (live overwrites stale entries)
   local stored_map
   stored_map=$(jq -c '.teammate_ttys // {}' "$RUN_STATE" 2>/dev/null || echo "{}")
+  # Migrate: old array format → new object format
+  if echo "$stored_map" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    stored_map="{}"
+  fi
   [[ "$stored_map" != "null" ]] || stored_map="{}"
   local merged_map
   merged_map=$(jq -n --argjson stored "$stored_map" --argjson live "$live_map" '$stored * $live')
