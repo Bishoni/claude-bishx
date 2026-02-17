@@ -374,87 +374,6 @@ fi
 # MODE 2: bishx-run (task execution loop)
 # ============================================================
 
-# Track teammate TTYs in state (safe to call anytime, never closes anything).
-# Claude Code reuses iTerm2 sessions for new teammates, so we MUST NOT close
-# tabs while the run session is active — only record for later cleanup.
-_record_teammate_ttys() {
-  [[ -f "$RUN_STATE" ]] || return 0
-
-  local team_name
-  team_name=$(jq -r '.team_name // ""' "$RUN_STATE" 2>/dev/null || echo "")
-  [[ -n "$team_name" && "$team_name" != "null" ]] || return 0
-
-  # Build live map: { "dev": "ttys003", "qa": "ttys005" }
-  local live_map="{}"
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    local tty agent_name
-    tty=$(echo "$line" | awk '{print $1}')
-    agent_name=$(echo "$line" | sed -n 's/.*--agent-name \([^ ]*\).*/\1/p')
-    if [[ -n "$agent_name" && -n "$tty" ]]; then
-      live_map=$(echo "$live_map" | jq --arg n "$agent_name" --arg t "$tty" '.[$n] = $t')
-    fi
-  done < <(ps -eo tty=,args= 2>/dev/null | grep -- "--team-name $team_name" | grep -v grep || true)
-
-  # Merge: stored + live (live overwrites)
-  local stored_map
-  stored_map=$(jq -c '.teammate_ttys // {}' "$RUN_STATE" 2>/dev/null || echo "{}")
-  if echo "$stored_map" | jq -e 'type == "array"' >/dev/null 2>&1; then
-    stored_map="{}"
-  fi
-  [[ "$stored_map" != "null" ]] || stored_map="{}"
-  local merged_map
-  merged_map=$(jq -n --argjson stored "$stored_map" --argjson live "$live_map" '$stored * $live')
-
-  jq --argjson m "$merged_map" '.teammate_ttys = $m' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
-}
-
-# Close dead teammate iTerm2 tabs. ONLY call at session end (complete/paused).
-# Uses recorded teammate_ttys map to find and close orphaned tabs.
-_cleanup_dead_teammates() {
-  [[ -f "$RUN_STATE" ]] || return 0
-
-  local stored_map
-  stored_map=$(jq -c '.teammate_ttys // {}' "$RUN_STATE" 2>/dev/null || echo "{}")
-  if echo "$stored_map" | jq -e 'type != "object" or length == 0' >/dev/null 2>&1; then
-    return 0
-  fi
-
-  local my_tty
-  my_tty=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ' || echo "")
-
-  local agent_name tty
-  while IFS='=' read -r agent_name tty; do
-    [[ -n "$agent_name" && -n "$tty" ]] || continue
-    [[ "$tty" == "$my_tty" ]] && continue
-
-    # Skip if claude process still on this TTY
-    if ps -eo tty=,args= 2>/dev/null | awk -v t="$tty" '$1 == t' | grep -q "claude"; then
-      continue
-    fi
-
-    # Close iTerm2 tab via AppleScript
-    local tty_path="/dev/${tty}"
-    osascript -e "
-      tell application \"iTerm2\"
-        repeat with w in windows
-          repeat with t in tabs of w
-            repeat with s in sessions of t
-              if tty of s is \"$tty_path\" then
-                close s
-                return
-              end if
-            end repeat
-          end repeat
-        end repeat
-      end tell
-    " 2>/dev/null || true
-  done < <(echo "$stored_map" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
-
-  # Clear map after cleanup
-  jq '.teammate_ttys = {}' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
-}
-
 if [[ -f "$RUN_STATE" ]]; then
   RUN_ACTIVE=$(jq -r '.active // false' "$RUN_STATE")
   if [[ "$RUN_ACTIVE" == "true" ]]; then
@@ -463,21 +382,16 @@ if [[ -f "$RUN_STATE" ]]; then
     CURRENT_TASK=$(jq -r '.current_task // ""' "$RUN_STATE")
     MODE=$(jq -r '.mode // "full"' "$RUN_STATE")
 
-    # Signal: complete — allow exit + cleanup dead teammate tabs
+    # Signal: complete — allow exit
     if echo "$LAST_OUTPUT" | grep -q "<bishx-complete>"; then
-      _cleanup_dead_teammates
       jq '.active = false' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
       exit 0
     fi
 
-    # Session is paused — cleanup dead teammate tabs + allow exit
+    # Session is paused — allow exit
     if [[ "$PAUSED" == "true" ]]; then
-      _cleanup_dead_teammates
       exit 0
     fi
-
-    # Record teammate TTYs for cleanup at session end (never close mid-session)
-    _record_teammate_ttys
 
     # Active session, not paused, no complete signal → keep the loop alive
     COMPLETED=$(jq -r '.completed_tasks | length' "$RUN_STATE" 2>/dev/null || echo "0")
