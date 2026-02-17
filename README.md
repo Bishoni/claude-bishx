@@ -72,6 +72,10 @@ Run `init` when starting a project from scratch. Run `init-sync` once there's co
 | `/bishx:status` | Check current development session status |
 | `/bishx:cancel` | Stop the active development session |
 
+### Hooks
+
+The plugin registers a **Stop hook** that keeps planning and execution sessions alive. It prevents Claude Code from exiting mid-pipeline by intercepting stop signals and re-injecting continuation prompts. The hook also cleans up tmux windows left behind by exited teammate agents.
+
 ## Architecture
 
 The plugin uses [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) — independent Claude Code sessions that communicate peer-to-peer via `SendMessage` and coordinate through a shared `TaskList`.
@@ -90,7 +94,11 @@ Iterates up to 5 times until the Critic scores ≥20/25 (APPROVED).
 Lead (orchestrator) → Dev (implementation) → Reviewer (code review) → QA (testing)
 ```
 
-Lead assigns bd tasks, Dev implements, Reviewer catches issues, QA validates. All agents run as independent sessions with their own context.
+Lead assigns bd tasks, Dev implements, Reviewer catches issues, QA validates. All agents run as independent tmux sessions via Agent Teams, communicating through `SendMessage` and sharing state through `TaskList`.
+
+Run modes:
+- `full` — Dev → Review → QA (default)
+- `dev` — Dev → Review only (faster)
 
 ## File Structure
 
@@ -98,31 +106,27 @@ Lead assigns bd tasks, Dev implements, Reviewer catches issues, QA validates. Al
 bishx/
 ├── .claude-plugin/plugin.json    # Plugin manifest
 ├── README.md
-├── agents/                       # Agent role definitions
-│   ├── critic.md                 # Final quality gate (plan)
-│   ├── dev.md                    # Developer agent (run)
-│   ├── operator.md               # Lead/orchestrator (run)
-│   ├── planner.md                # Implementation planner (plan)
-│   ├── qa.md                     # QA tester (run)
-│   ├── researcher.md             # Deep research (plan)
-│   ├── reviewer.md               # Code reviewer (run)
-│   ├── skeptic.md                # Mirage detector (plan)
-│   └── tdd-reviewer.md           # TDD compliance (plan)
+├── agents/                       # Agent role definitions (planning pipeline)
+│   ├── critic.md                 # Final quality gate
+│   ├── planner.md                # Implementation planner
+│   ├── researcher.md             # Deep codebase/API research
+│   ├── skeptic.md                # Mirage detector — verifies claims against reality
+│   └── tdd-reviewer.md           # TDD compliance checker
 ├── commands/                     # Slash command definitions
-│   ├── bd.md
 │   ├── cancel.md
 │   ├── idea.md
 │   ├── init.md
 │   ├── init-sync.md
 │   ├── plan.md
+│   ├── plan-to-bd-tasks.md       # /bishx:bd implementation
 │   ├── polish.md
 │   ├── prompt.md
 │   ├── run.md
 │   └── status.md
 ├── hooks/                        # Stop hooks for session persistence
-│   ├── discover-skills.sh
+│   ├── discover-skills.sh        # Auto-detect relevant skills for planning
 │   ├── hooks.json
-│   └── stop-hook.sh
+│   └── stop-hook.sh              # Keeps plan/run sessions alive
 └── skills/                       # Detailed skill instructions
     ├── init-sync/SKILL.md
     ├── plan/SKILL.md
