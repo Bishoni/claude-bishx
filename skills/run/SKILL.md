@@ -387,17 +387,44 @@ Stop hook keeps the loop alive between tasks.
 
 ## Recovery (after restart / context compression / resume)
 
-FIRST: TeamCreate(team_name="bishx-run-{project}") — team MUST exist before any Task calls.
-After restart teammates don't survive — you MUST re-create the team and spawn again.
+After restart ALL teammates are dead. You MUST re-create the team and spawn again.
+Do NOT rely solely on `waiting_for` from state — check ground truth.
 
-1. TeamCreate(team_name="bishx-run-{project}")
-2. Read `.omc/state/bishx-run-context.md` + `bishx-run-state.json`
-3. `bd epic status`
-4. For in_progress tasks: determine which step was interrupted using state.json.
-   ALWAYS resume from the FULL cycle — never skip steps:
-   - Code not reviewed → spawn dev (if needed) + reviewer + continue from step 6
-   - Code not committed → commit/push + continue from step 9
-   - QA not done → spawn qa + continue from step 9
-   - QA not passed → continue from step 9
-   NEVER close a task without QA. NEVER manually verify instead of spawning QA.
-   NEVER spawn agents without team_name. EVERY Task MUST have team_name.
+### Step 1: Infrastructure
+```
+TeamCreate(team_name="bishx-run-{project}")
+```
+Team MUST exist before any Task calls.
+
+### Step 2: Read state
+- Read `.omc/state/bishx-run-state.json` — current_task, current_phase, teammates, waiting_for
+- Read `.omc/state/bishx-run-context.md` — last known situation summary
+
+### Step 3: Check ground truth
+Run these to understand the REAL state of the project:
+- `bd epic status` — which tasks are in_progress, open, closed
+- `bd show {current_task}` — task scope and acceptance criteria
+- `git log --oneline -10` — what was already committed for this task
+- `git status --porcelain` + `git diff --stat` — uncommitted work from dev
+- Read `context.md` for QA feedback, review status, etc.
+
+### Step 4: Determine resume point from evidence
+
+Based on what you found, determine where the task actually is:
+
+- **No commits for this task AND no uncommitted diff** → dev hasn't started or work was lost. Start task from the beginning (main loop step 4).
+- **Uncommitted diff exists** → dev was working, progress survived. Spawn dev, tell them: "Continue from where you left off. These files have changes: [list]. Complete the task and notify me." Resume from main loop step 5 (wait for dev).
+- **Commits exist but not pushed** → review likely passed, push was interrupted. Push first, then check if QA ran. If not — spawn QA. Resume from main loop step 8 or 9.
+- **Commits pushed, no QA result in context** → dev + review + commit done, QA pending. Spawn QA. Resume from main loop step 9.
+- **QA failed (noted in context.md)** → fix cycle was in progress. Spawn dev with QA feedback. Resume from main loop step 10 (QA failed branch).
+- **QA passed, bd not closed** → almost done. Close in bd. Resume from main loop step 11.
+
+### Step 5: Spawn teammates and resume
+
+1. Determine `current_phase` from task ID (everything before last dot).
+2. Spawn ONLY the teammates needed for the current step (not all at once).
+3. Update `state.teammates` with new names, `state.current_phase` with phase.
+4. Enter main loop at the determined step.
+
+NEVER close a task without QA. NEVER manually verify instead of spawning QA.
+NEVER spawn agents without team_name. EVERY Task MUST have team_name.
