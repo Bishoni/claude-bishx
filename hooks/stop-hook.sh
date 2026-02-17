@@ -374,79 +374,81 @@ fi
 # MODE 2: bishx-run (task execution loop)
 # ============================================================
 
-# Cleanup dead teammate terminal tabs.
+# Cleanup dead teammate terminal tabs (iTerm2).
 # Claude Code runs teammates as separate TTY processes (iTerm2 tabs).
 # When a teammate exits, the tab stays open with a bare shell.
-# Strategy: track teammate TTYs while alive → close orphaned tabs via AppleScript after exit.
+# Strategy: map each agent-name → TTY, close tabs for dead agents individually.
 _cleanup_dead_teammates() {
   [[ -f "$RUN_STATE" ]] || return 0
 
-  # Get team name from state
   local team_name
   team_name=$(jq -r '.team_name // ""' "$RUN_STATE" 2>/dev/null || echo "")
   [[ -n "$team_name" && "$team_name" != "null" ]] || return 0
 
-  # Find TTYs with active teammate processes (--team-name flag)
-  local active_teammate_ttys
-  active_teammate_ttys=$(ps -eo tty=,args= 2>/dev/null \
-    | grep -- "--team-name $team_name" \
-    | grep -v grep \
-    | awk '{print $1}' \
-    | sort -u || true)
+  # Build live map: { "dev-1": "ttys003", "qa-1": "ttys005" }
+  local live_map="{}"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    local tty agent_name
+    tty=$(echo "$line" | awk '{print $1}')
+    # Extract --agent-name value (BSD-compatible, no grep -P)
+    agent_name=$(echo "$line" | sed -n 's/.*--agent-name \([^ ]*\).*/\1/p')
+    if [[ -n "$agent_name" && -n "$tty" ]]; then
+      live_map=$(echo "$live_map" | jq --arg n "$agent_name" --arg t "$tty" '.[$n] = $t')
+    fi
+  done < <(ps -eo tty=,args= 2>/dev/null | grep -- "--team-name $team_name" | grep -v grep || true)
 
-  if [[ -n "$active_teammate_ttys" ]]; then
-    # Teammates still running → record their TTYs for future cleanup, don't kill
-    local ttys_json
-    ttys_json=$(echo "$active_teammate_ttys" | jq -R . | jq -s .)
-    jq ".teammate_ttys = $ttys_json" "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
-    return 0
-  fi
+  # Merge: stored + live (live overwrites stale entries)
+  local stored_map
+  stored_map=$(jq -c '.teammate_ttys // {}' "$RUN_STATE" 2>/dev/null || echo "{}")
+  [[ "$stored_map" != "null" ]] || stored_map="{}"
+  local merged_map
+  merged_map=$(jq -n --argjson stored "$stored_map" --argjson live "$live_map" '$stored * $live')
 
-  # No active teammates → check recorded TTYs for orphaned shells
-  local recorded_ttys
-  recorded_ttys=$(jq -r '.teammate_ttys // [] | .[]' "$RUN_STATE" 2>/dev/null || true)
-  [[ -n "$recorded_ttys" ]] || return 0
+  # Persist merged map
+  jq --argjson m "$merged_map" '.teammate_ttys = $m' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
 
-  # Get lead's TTY — never touch it
+  # Lead's TTY — never touch
   local my_tty
   my_tty=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ' || echo "")
 
-  local ttys_to_close=""
-  local tty
-  for tty in $recorded_ttys; do
-    # Skip lead's own TTY
+  # Walk merged map: close tabs for agents NOT in live_map
+  local agent_name tty
+  while IFS='=' read -r agent_name tty; do
+    [[ -n "$agent_name" && -n "$tty" ]] || continue
+
+    # Still alive? skip
+    local still_alive
+    still_alive=$(echo "$live_map" | jq -r --arg n "$agent_name" '.[$n] // empty')
+    [[ -z "$still_alive" ]] || continue
+
+    # Lead's TTY? skip
     [[ "$tty" == "$my_tty" ]] && continue
 
-    # Double-check: skip if ANY claude process still runs on this TTY
+    # Extra safety: skip if any claude process on this TTY
     if ps -eo tty=,args= 2>/dev/null | awk -v t="$tty" '$1 == t' | grep -q "claude"; then
       continue
     fi
 
-    # Convert ps TTY format (ttys003) to device path (/dev/ttys003)
-    ttys_to_close="${ttys_to_close} /dev/${tty}"
-  done
-
-  # Close orphaned tabs via iTerm2 AppleScript API
-  if [[ -n "$ttys_to_close" ]]; then
-    for tty_path in $ttys_to_close; do
-      osascript -e "
-        tell application \"iTerm2\"
-          repeat with w in windows
-            repeat with t in tabs of w
-              repeat with s in sessions of t
-                if tty of s is \"$tty_path\" then
-                  close s
-                end if
-              end repeat
+    # Close iTerm2 tab via AppleScript
+    local tty_path="/dev/${tty}"
+    osascript -e "
+      tell application \"iTerm2\"
+        repeat with w in windows
+          repeat with t in tabs of w
+            repeat with s in sessions of t
+              if tty of s is \"$tty_path\" then
+                close s
+              end if
             end repeat
           end repeat
-        end tell
-      " 2>/dev/null || true
-    done
-  fi
+        end repeat
+      end tell
+    " 2>/dev/null || true
 
-  # Clear recorded TTYs after cleanup
-  jq '.teammate_ttys = []' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
+    # Remove closed agent from stored map
+    jq --arg n "$agent_name" '.teammate_ttys |= del(.[$n])' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
+  done < <(echo "$merged_map" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
 }
 
 if [[ -f "$RUN_STATE" ]]; then
