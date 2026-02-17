@@ -434,7 +434,7 @@ _cleanup_dead_teammates() {
       continue
     fi
 
-    # Close iTerm2 tab via AppleScript
+    # Close iTerm2 tab via AppleScript (exit after close to avoid stale index)
     local tty_path="/dev/${tty}"
     osascript -e "
       tell application \"iTerm2\"
@@ -443,6 +443,7 @@ _cleanup_dead_teammates() {
             repeat with s in sessions of t
               if tty of s is \"$tty_path\" then
                 close s
+                return
               end if
             end repeat
           end repeat
