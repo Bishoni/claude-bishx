@@ -190,8 +190,9 @@ The hook reads the verdict from state.json and routes:
 ## Phase 4: Finalize (triggered when Critic approves)
 
 1. Read the approved plan from `iterations/NN/PLAN.md`
-2. Write `.bishx-plan/FINAL-PLAN.md` (copy of approved plan)
-3. Write plan-mode file to `~/.claude/plans/bishx-plan-{session}.md`
+2. Generate filename with current datetime: `plan-YYYY-MM-DD-HHmmss.md` (e.g. `plan-2026-02-16-153045.md`)
+3. Write `.bishx-plan/{filename}` (copy of approved plan)
+4. Write plan-mode file to `~/.claude/plans/{filename}`
 4. Present to human:
    - Final plan summary
    - Iteration count and score progression

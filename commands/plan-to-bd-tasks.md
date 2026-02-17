@@ -4,7 +4,7 @@ description: Import bishx-plan into bd (beads) as Epic → Feature → Task hier
 
 # bishx-bd: Import plan into bd
 
-Read the plan from `.bishx-plan/FINAL-PLAN.md` (or `.omc/beast-plan.md` as fallback) and create a task hierarchy in bd (beads), handling existing tasks gracefully.
+Read the plan file specified in `$ARGUMENTS` and create a task hierarchy in bd (beads), handling existing tasks gracefully.
 
 ## Algorithm
 
@@ -44,7 +44,7 @@ If an open issue with a similar title is found:
 
 ### Step 1: Read the plan
 
-Read `.bishx-plan/FINAL-PLAN.md` (or file from `$ARGUMENTS`). If file doesn't exist — tell user to run `/bishx-plan` first.
+Read the file from `$ARGUMENTS`. If file doesn't exist — tell user and stop.
 
 ### Step 2: Parse plan structure
 
@@ -184,7 +184,7 @@ Show user:
 8. **If bd create fails** — show error and ask user, don't continue silently
 9. **When ambiguous** — ask user, don't decide yourself
 
-## Arguments (optional)
+## Arguments (required)
 
-- `$ARGUMENTS` — path to plan file. If not specified → `.bishx-plan/FINAL-PLAN.md`
-- Example: `/bishx-bd docs/plans/my-plan.md`
+- `$ARGUMENTS` — path to plan file. **Must be specified.** If missing — ask the user for the path, do not proceed without it.
+- Example: `/bishx:plan-to-bd-tasks .bishx-plan/plan-2026-02-16-153045.md`
