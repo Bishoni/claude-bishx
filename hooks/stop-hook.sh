@@ -374,34 +374,31 @@ fi
 # MODE 2: bishx-run (task execution loop)
 # ============================================================
 
-# Cleanup dead teammate terminal tabs (iTerm2).
-# Claude Code runs teammates as separate TTY processes (iTerm2 tabs).
-# When a teammate exits, the tab stays open with a bare shell.
-# Strategy: map each agent-name → TTY, close tabs for dead agents individually.
-_cleanup_dead_teammates() {
+# Track teammate TTYs in state (safe to call anytime, never closes anything).
+# Claude Code reuses iTerm2 sessions for new teammates, so we MUST NOT close
+# tabs while the run session is active — only record for later cleanup.
+_record_teammate_ttys() {
   [[ -f "$RUN_STATE" ]] || return 0
 
   local team_name
   team_name=$(jq -r '.team_name // ""' "$RUN_STATE" 2>/dev/null || echo "")
   [[ -n "$team_name" && "$team_name" != "null" ]] || return 0
 
-  # Build live map: { "dev-1": "ttys003", "qa-1": "ttys005" }
+  # Build live map: { "dev": "ttys003", "qa": "ttys005" }
   local live_map="{}"
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     local tty agent_name
     tty=$(echo "$line" | awk '{print $1}')
-    # Extract --agent-name value (BSD-compatible, no grep -P)
     agent_name=$(echo "$line" | sed -n 's/.*--agent-name \([^ ]*\).*/\1/p')
     if [[ -n "$agent_name" && -n "$tty" ]]; then
       live_map=$(echo "$live_map" | jq --arg n "$agent_name" --arg t "$tty" '.[$n] = $t')
     fi
   done < <(ps -eo tty=,args= 2>/dev/null | grep -- "--team-name $team_name" | grep -v grep || true)
 
-  # Merge: stored + live (live overwrites stale entries)
+  # Merge: stored + live (live overwrites)
   local stored_map
   stored_map=$(jq -c '.teammate_ttys // {}' "$RUN_STATE" 2>/dev/null || echo "{}")
-  # Migrate: old array format → new object format
   if echo "$stored_map" | jq -e 'type == "array"' >/dev/null 2>&1; then
     stored_map="{}"
   fi
@@ -409,32 +406,34 @@ _cleanup_dead_teammates() {
   local merged_map
   merged_map=$(jq -n --argjson stored "$stored_map" --argjson live "$live_map" '$stored * $live')
 
-  # Persist merged map
   jq --argjson m "$merged_map" '.teammate_ttys = $m' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
+}
 
-  # Lead's TTY — never touch
+# Close dead teammate iTerm2 tabs. ONLY call at session end (complete/paused).
+# Uses recorded teammate_ttys map to find and close orphaned tabs.
+_cleanup_dead_teammates() {
+  [[ -f "$RUN_STATE" ]] || return 0
+
+  local stored_map
+  stored_map=$(jq -c '.teammate_ttys // {}' "$RUN_STATE" 2>/dev/null || echo "{}")
+  if echo "$stored_map" | jq -e 'type != "object" or length == 0' >/dev/null 2>&1; then
+    return 0
+  fi
+
   local my_tty
   my_tty=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ' || echo "")
 
-  # Walk merged map: close tabs for agents NOT in live_map
   local agent_name tty
   while IFS='=' read -r agent_name tty; do
     [[ -n "$agent_name" && -n "$tty" ]] || continue
-
-    # Still alive? skip
-    local still_alive
-    still_alive=$(echo "$live_map" | jq -r --arg n "$agent_name" '.[$n] // empty')
-    [[ -z "$still_alive" ]] || continue
-
-    # Lead's TTY? skip
     [[ "$tty" == "$my_tty" ]] && continue
 
-    # Extra safety: skip if any claude process on this TTY
+    # Skip if claude process still on this TTY
     if ps -eo tty=,args= 2>/dev/null | awk -v t="$tty" '$1 == t' | grep -q "claude"; then
       continue
     fi
 
-    # Close iTerm2 tab via AppleScript (exit after close to avoid stale index)
+    # Close iTerm2 tab via AppleScript
     local tty_path="/dev/${tty}"
     osascript -e "
       tell application \"iTerm2\"
@@ -450,10 +449,10 @@ _cleanup_dead_teammates() {
         end repeat
       end tell
     " 2>/dev/null || true
+  done < <(echo "$stored_map" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
 
-    # Remove closed agent from stored map
-    jq --arg n "$agent_name" '.teammate_ttys |= del(.[$n])' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
-  done < <(echo "$merged_map" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
+  # Clear map after cleanup
+  jq '.teammate_ttys = {}' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
 }
 
 if [[ -f "$RUN_STATE" ]]; then
@@ -477,8 +476,8 @@ if [[ -f "$RUN_STATE" ]]; then
       exit 0
     fi
 
-    # Cleanup dead teammate tabs (shell left behind after agent exit)
-    _cleanup_dead_teammates
+    # Record teammate TTYs for cleanup at session end (never close mid-session)
+    _record_teammate_ttys
 
     # Active session, not paused, no complete signal → keep the loop alive
     COMPLETED=$(jq -r '.completed_tasks | length' "$RUN_STATE" 2>/dev/null || echo "0")
