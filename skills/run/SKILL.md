@@ -343,7 +343,7 @@ If no skill matches — proceed without one, don't force it.
 ## Workflow
 1. Read the task's acceptance criteria
 2. Determine interface type:
-   - Web interface → test via Playwright MCP (browser_navigate, browser_snapshot, browser_click, etc.)
+   - Web interface → MUST use MCP Playwright for acceptance testing (browser_navigate, browser_snapshot, browser_click, browser_take_screenshot, etc.). Web testing is NOT considered done without Playwright.
    - Telegram interface → test via Telegram MCP (send_message, get_messages, list_inline_buttons, press_inline_button, etc.)
    - API / CLI / no interface → test via Bash (curl, running commands)
 3. Check EVERY acceptance criterion: met or not
