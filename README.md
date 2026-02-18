@@ -3,7 +3,7 @@
 Full dev lifecycle plugin for [Claude Code](https://claude.com/product/claude-code). Takes you from a raw idea to shipped code through a structured pipeline of AI agents.
 
 ```
-idea → prompt → plan → tasks → code
+idea → prompt → plan → tasks → code → test
 ```
 
 ## Installation
@@ -55,6 +55,7 @@ Run `init` when starting a project from scratch. Run `init-sync` once there's co
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → Reviewer → QA) |
 | `/bishx:run full` | Full cycle: development + code review + QA testing |
 | `/bishx:run dev` | Fast cycle: development + code review only |
+| `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs unit/integration/E2E/security/performance tests, reports bugs to bd |
 
 ### Analysis
 
@@ -71,6 +72,13 @@ Run `init` when starting a project from scratch. Run `init-sync` once there's co
 |---------|-------------|
 | `/bishx:status` | Check current development session status |
 | `/bishx:cancel` | Stop the active development session |
+
+### Testing
+
+| Command | Description |
+|---------|-------------|
+| `/bishx:test` | Deep system testing — auto-detects stack, discovers components, runs all test types, reports bugs to bd with reproduction steps |
+| `/bishx:test <types>` | Run specific test types (e.g., `unit`, `integration`, `e2e`, `security`, `performance`) |
 
 ### Hooks
 
@@ -95,6 +103,8 @@ Lead (orchestrator) → Dev (implementation) → Reviewer (code review) → QA (
 ```
 
 Lead assigns bd tasks, Dev implements, Reviewer catches issues, QA validates. All agents run as independent tmux sessions via Agent Teams, communicating through `SendMessage` and sharing state through `TaskList`.
+
+Lead performs centralized skill lookup from the skill library before each task, passing relevant skill paths to each agent (≤1500 lines budget per agent).
 
 Run modes:
 - `full` — Dev → Review → QA (default)
@@ -122,7 +132,8 @@ bishx/
 │   ├── polish.md
 │   ├── prompt.md
 │   ├── run.md
-│   └── status.md
+│   ├── status.md
+│   └── test.md
 ├── hooks/                        # Stop hooks for session persistence
 │   ├── discover-skills.sh        # Auto-detect relevant skills for planning
 │   ├── hooks.json
@@ -131,7 +142,8 @@ bishx/
     ├── init-sync/SKILL.md
     ├── plan/SKILL.md
     ├── prompt/SKILL.md
-    └── run/SKILL.md
+    ├── run/SKILL.md
+    └── test/SKILL.md
 ```
 
 ## Credits
