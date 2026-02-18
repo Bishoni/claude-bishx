@@ -81,7 +81,29 @@ LOOP:
        TaskCreate(subject="[{id}] QA testing", activeForm="QA testing {id}...")
        TaskCreate(subject="[{id}] Close in bd", activeForm="Closing {id}...")
 
-  3.5. PHASE CHECK:
+  3.5. SKILL LOOKUP (Lead does this ONCE per task, agents do NOT search themselves):
+       Task may span multiple categories. Each agent gets ≤1500 lines of skills total.
+       1. Read `~/.claude/skill-library/INDEX.md` — match task to ALL relevant categories
+       2. For each category: read `~/.claude/skill-library/<category>/INDEX.md`
+          Pick skills per role using `(N lines)` from INDEX to track budget:
+          - dev_skills: implementation skills (may be 1-3 from different categories)
+          - reviewer_skills: review/quality skills
+          - qa_skills: testing skills
+          Sum lines per role. Drop lowest-priority skill if >1500.
+       3. Tell user:
+          ```
+          Skills for {id}:
+            dev: backend/api-dev (220), backend/software-security (180) = 400 lines
+            reviewer: review-qa/code-review-expert (155) = 155 lines
+            qa: review-qa/webapp-testing (95) = 95 lines
+          ```
+          (use "none" if no match for a role)
+       4. Pass skill paths to each agent in their task message/prompt:
+          "Skills: read these SKILL.md files and follow them:
+           1. ~/.claude/skill-library/<category>/<skill>/SKILL.md (N lines)
+           2. ~/.claude/skill-library/<category>/<skill>/SKILL.md (N lines)"
+
+  3.6. PHASE CHECK:
        new_phase = task ID up to last dot (e.g., fv4.2 → fv4, fv5.1 → fv5)
        if new_phase != current_phase (from state.json):
          Read teammates from state.json to get actual names.
@@ -118,6 +140,7 @@ LOOP:
      UPDATE STATE: set waiting_for="" in state.json.
      LEAD COMMITS AND PUSHES (only after review passed):
      git add <files> && git commit -m "<message>" && git push
+     NEVER add .beads/ or .omc/ files — they are gitignored. Only add project source files.
      Do NOT run git pull/rebase before commit — it will fail on unstaged changes.
      Do NOT run bd close yet — QA must pass first.
      TaskUpdate → "[{id}] Commit & push" → completed.
@@ -239,12 +262,9 @@ Read CLAUDE.md and AGENTS.md for project rules.
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
 For running tools: .venv/bin/pytest, .venv/bin/ruff, etc.
 
-## Skill Library
-Before starting, find a matching skill:
-1. Read `~/.claude/skill-library/INDEX.md` — match task to category
-2. Read `~/.claude/skill-library/<category>/INDEX.md` — find skill by keywords and "Use when..." triggers
-3. Read the matching `SKILL.md` and follow it. Budget: total loaded ≤1500 lines
-If no skill matches — proceed without one, don't force it.
+## Skills
+Lead may include skill paths in your task assignment.
+If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
 
 ## Task
 {bd show task_id — FULL output}
@@ -285,12 +305,9 @@ To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", sum
 
 Lead MUST fill {reviewer_name}, {lead_name}, {dev_name} with actual teammate names when spawning.
 
-## Skill Library
-Before starting, find a matching skill:
-1. Read `~/.claude/skill-library/INDEX.md` — match task to category
-2. Read `~/.claude/skill-library/<category>/INDEX.md` — find skill by keywords and "Use when..." triggers
-3. Read the matching `SKILL.md` and follow it. Budget: total loaded ≤1500 lines
-If no skill matches — proceed without one, don't force it.
+## Skills
+Lead may include skill paths in your prompt.
+If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
 
 ## Task
 {bd show task_id — task description}
@@ -330,12 +347,9 @@ Communication: SendMessage(type="message", recipient="{lead_name}", content="...
 
 Lead MUST fill {qa_name}, {lead_name} with actual teammate names when spawning.
 
-## Skill Library
-Before starting, find a matching skill:
-1. Read `~/.claude/skill-library/INDEX.md` — match task to category
-2. Read `~/.claude/skill-library/<category>/INDEX.md` — find skill by keywords and "Use when..." triggers
-3. Read the matching `SKILL.md` and follow it. Budget: total loaded ≤1500 lines
-If no skill matches — proceed without one, don't force it.
+## Skills
+Lead may include skill paths in your task assignment.
+If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
 
 ## Task
 {bd show task_id — description + acceptance criteria}

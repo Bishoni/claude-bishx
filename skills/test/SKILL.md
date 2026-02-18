@@ -6,8 +6,9 @@ description: "Deep system testing — auto-detects stack, discovers components, 
 # Bishx-Test: Deep System Testing
 
 Autonomous testing skill. Detects project stack, discovers components, runs existing tests,
-writes missing ones, performs E2E acceptance testing via Playwright MCP, security audit,
-data integrity and performance checks. Produces structured bug reports in bd.
+performs E2E acceptance testing via Playwright MCP, security audit, data integrity and
+performance checks. Writes proposed tests to run directory (never touches project source).
+Produces structured bug reports in bd.
 
 ## Skill Library
 
@@ -25,6 +26,8 @@ If no skill matches — proceed without one, don't force it.
 - Fixing bugs — ONLY find and report
 - Creating bd tasks without severity and reproduction steps
 - Using Sonnet/Haiku agents — ALL agents are Opus
+- Writing ANY files into the project source tree — all output goes to `{run_dir}/`
+- Modifying existing project code, tests, or configuration
 
 ## Flow
 
@@ -203,6 +206,8 @@ Given the project profile, the analyst MUST:
    - Performance: available if API endpoints exist
    - Accessibility: available if `e2e_possible == true` (uses Playwright accessibility tree)
    - Error Handling: always available (tests resilience to failures)
+   - UX/UI Visual: available if `e2e_possible == true` (uses Playwright for visual quality checks across viewports)
+   - Web Bug Hunting: available if `e2e_possible == true` (uses Playwright for exploratory bug search)
 
 ### Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/discovery-report.md`
 
@@ -235,59 +240,144 @@ Structure:
 
 **Actor:** Lead (main thread)
 
-Read discovery report. Present available test types via AskUserQuestion:
+Read discovery report. Present available test types via AskUserQuestion.
+Split into groups so each question has 2-4 options (AskUserQuestion limit).
+Populate descriptions with real numbers from discovery (coverage %, module count, route count).
+If a type is unavailable, do NOT include it in that group's options.
+If all options in a group are unavailable, omit the entire question.
+
+```
+AskUserQuestion(
+  questions=[
+    {
+      question: "Backend testing — which types to run?",
+      header: "Backend",
+      multiSelect: true,
+      options: [
+        // Only include if backend stack detected
+        {
+          label: "Backend Unit",
+          description: "Services, parsers, business logic, edge cases. {N} modules, {M}% covered."
+        },
+        // Only include if API endpoints exist
+        {
+          label: "Backend API",
+          description: "Endpoints, contracts, status codes, error responses. {N} routes found."
+        },
+        // Always available
+        {
+          label: "Error Handling",
+          description: "Resilience: DB down, invalid config, corrupted input, network failures."
+        }
+      ]
+    },
+    {
+      // Only include this question if e2e_possible == true
+      question: "Web testing (Playwright) — which types to run?",
+      header: "Web",
+      multiSelect: true,
+      options: [
+        {
+          label: "E2E Acceptance",
+          description: "User flows step-by-step: forms, navigation, CRUD operations."
+        },
+        {
+          label: "UX/UI Visual",
+          description: "Visual quality: responsive viewports, empty/loading/error states, design consistency."
+        },
+        {
+          label: "Web Bug Hunting",
+          description: "Exploratory testing: console errors, broken links, state bugs, URL manipulation."
+        },
+        {
+          label: "Accessibility",
+          description: "WCAG compliance: ARIA, contrast, keyboard navigation, screen reader support."
+        }
+      ]
+    },
+    {
+      question: "Specialized testing — which types to run?",
+      header: "Specialized",
+      multiSelect: true,
+      options: [
+        // Always available
+        {
+          label: "Security",
+          description: "OWASP Top 10: injections, XSS, file upload abuse, CORS, auth."
+        },
+        // Only include if data pipeline exists
+        {
+          label: "Data Integrity",
+          description: "Data pipeline consistency: import to DB to API to UI."
+        },
+        // Only include if API endpoints exist
+        {
+          label: "Performance",
+          description: "Response times, large datasets, slow queries, memory."
+        },
+        // Always available — shortcut
+        {
+          label: "Full",
+          description: "Select ALL available test types across all groups."
+        }
+      ]
+    }
+  ]
+)
+```
+
+If user selects "Full" in any group — enable ALL available types across ALL groups (override individual selections).
+
+After user selects test types, ask about audit mode:
 
 ```
 AskUserQuestion(
   questions=[{
-    question: "Which testing types to run?",
-    header: "Test types",
-    multiSelect: true,
+    question: "Audit mode — should agents propose test files?",
+    header: "Audit mode",
+    multiSelect: false,
     options: [
-      // Only include options where discovery confirmed availability
       {
-        label: "Backend Unit",
-        description: "Services, parsers, business logic, edge cases. {N} modules, {M}% covered."
+        label: "Hybrid (Recommended)",
+        description: "Agents find bugs AND write proposed test files to .bishx-test/{run}/proposed-tests/. Project is untouched."
       },
       {
-        label: "Backend API",
-        description: "Endpoints, contracts, status codes, error responses. {N} routes found."
-      },
-      {
-        label: "E2E Acceptance",
-        description: "UI flows via Playwright MCP. Requires running services."
-      },
-      {
-        label: "Security",
-        description: "OWASP Top 10: injections, XSS, file upload abuse, CORS, auth."
-      },
-      {
-        label: "Data Integrity",
-        description: "Data pipeline consistency: import to DB to API to UI."
-      },
-      {
-        label: "Performance",
-        description: "Response times, large datasets, slow queries, memory."
-      },
-      {
-        label: "Accessibility",
-        description: "WCAG compliance: ARIA, contrast, keyboard navigation, screen reader support."
-      },
-      {
-        label: "Error Handling",
-        description: "Resilience: DB down, invalid config, corrupted input, network failures."
-      },
-      {
-        label: "Full",
-        description: "All available test types."
+        label: "Read-only",
+        description: "Agents only find bugs and write reports. No test files created."
       }
     ]
   }]
 )
 ```
 
-Populate descriptions with real numbers from discovery (coverage %, module count, route count).
-If a type is unavailable, do NOT include it in options.
+Store the choice. Pass `audit_mode: "hybrid"` or `audit_mode: "readonly"` to all agent prompts.
+
+---
+
+### Proposed Tests Directory (Hybrid mode only)
+
+When `audit_mode == "hybrid"`, agents write proposed test files to:
+
+```
+{run_dir}/proposed-tests/
+├── test_deep_{module_name}.{ext}
+├── test_api_{endpoint_name}.{ext}
+├── test_error_{service_name}.{ext}
+└── ...
+```
+
+Rules for proposed tests:
+- Files go ONLY into `{run_dir}/proposed-tests/` — NEVER into the project tree
+- Use the project's test framework, imports, and fixtures
+- Each test file has a header comment:
+  ```
+  # Proposed by bishx:test — Run #{N}, {date}
+  # Target: {source_file}:{line}
+  # Bug: {bug_title}
+  # To use: copy this file to {project_test_dir}/ and run with {test_cmd}
+  ```
+- Tests must be self-contained and runnable when copied to the project test directory
+- Do NOT run proposed tests (they may require project test directory context/fixtures)
 
 ---
 
@@ -298,7 +388,7 @@ If a type is unavailable, do NOT include it in options.
 ```
 Wave 1 (parallel):   Backend Unit + Backend API + Security + Error Handling
 Wave 2 (parallel):   Data Integrity + Performance
-Wave 3 (parallel):   E2E Acceptance + Accessibility
+Wave 3 (parallel):   E2E Acceptance + Accessibility + UX/UI Visual + Web Bug Hunting
 ```
 
 Only run waves that contain selected test types.
@@ -306,7 +396,7 @@ If only E2E selected, skip waves 1-2, go straight to wave 3.
 
 ### Pre-flight Check (before wave 3)
 
-If E2E is selected:
+If any Wave 3 type is selected (E2E Acceptance, Accessibility, UX/UI Visual, Web Bug Hunting):
 1. Check if services are running: `curl {profile.services.health_check}`
 2. If NOT running and docker_compose is available:
    - Ask user: "Services are not running. Start with `{profile.services.start_cmd}`?"
@@ -347,7 +437,8 @@ Workflow:
 2. Read discovery priority matrix. For each high-priority untested module:
    a. Read the source code
    b. Identify testable functions/methods
-   c. Write test file: `{stack.test_dir}/test_deep_{module_name}.{ext}`
+   c. If `audit_mode == "hybrid"`: write proposed test file to `{run_dir}/proposed-tests/test_deep_{module_name}.{ext}`
+      If `audit_mode == "readonly"`: document what tests SHOULD exist in the report
    d. Match existing test patterns (imports, fixtures, assertions)
    e. Test cases MUST include:
       - Happy path (normal input, expected output)
@@ -373,14 +464,14 @@ Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/backend-unit-report.md`
 - Total: N, Passed: N, Failed: N, Skipped: N
 - Failures: [list with details]
 
-## New Tests Written
-| File | Tests | Target Module | Result |
+## Proposed Tests (hybrid mode)
+| File | Tests | Target Module | Bug Reference |
 
 ## Bugs Found
 [structured bug entries — see Bug Format below]
 
-## Coverage Delta
-| Module | Before | After |
+## Coverage Gaps
+| Module | Current Coverage | Missing |
 ```
 
 ---
@@ -420,7 +511,9 @@ Workflow:
    g. **Content-Type** — wrong content type, expect 415 or graceful handling
    h. **Response schema** — response matches expected shape (all fields present, correct types)
 
-3. Write API test files using project's test framework.
+3. If `audit_mode == "hybrid"`: Write proposed test files to `{run_dir}/proposed-tests/test_api_{endpoint}.{ext}`.
+   If `audit_mode == "readonly"`: Document what tests should exist in the report.
+   Do NOT write into the project test directory.
    Use test client (httpx/supertest/etc.), NOT live HTTP calls.
 
 4. Contract check: compare API response shapes with frontend consumption.
@@ -569,7 +662,9 @@ Workflow:
    - Orphaned records possible?
    - Cascade behavior on deletes (if applicable)
 
-Write tests using project's test framework where possible.
+If `audit_mode == "hybrid"`: Write proposed verification tests to `{run_dir}/proposed-tests/test_data_{pipeline}.{ext}`.
+If `audit_mode == "readonly"`: Document inconsistencies in the report only.
+Do NOT write into the project test directory.
 
 Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/data-integrity-report.md`
 
@@ -622,8 +717,9 @@ Workflow:
    - Time to interactive
    - Large data rendering (does table/chart freeze with 1000+ rows?)
 
-Write benchmark tests using project's test framework.
-Include timing assertions where appropriate.
+If `audit_mode == "hybrid"`: Write proposed benchmark tests to `{run_dir}/proposed-tests/test_perf_{endpoint}.{ext}`.
+If `audit_mode == "readonly"`: Document performance findings in the report only.
+Do NOT write into the project test directory.
 
 Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/performance-report.md`
 
@@ -793,6 +889,430 @@ Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/accessibility-report.md`
 
 ---
 
+### Test Type: UX/UI Visual
+
+**PREREQUISITE:** Services must be running. Health check must pass.
+
+**Agent:** Opus, full access + MCP
+
+```
+Task(
+  subagent_type="oh-my-claudecode:executor-high",
+  model="opus",
+  prompt=<profile + discovery + instructions below>
+)
+```
+
+**Instructions:**
+
+You are a **senior UX/UI design reviewer** performing an aesthetic and usability audit of "{profile.project}".
+
+Your primary mission is DESIGN QUALITY EVALUATION — not just finding broken pixels, but judging whether the product looks and feels good to use. Think like a designer from a top product studio reviewing a client's app.
+
+Web URL: {profile.services.web_url}
+
+MANDATORY: Use MCP Playwright for ALL visual checks:
+- `browser_navigate(url)` — open pages
+- `browser_snapshot()` — read accessibility tree (structure, labels, roles)
+- `browser_take_screenshot()` — capture visual state (PRIMARY tool — screenshot EVERY page)
+- `browser_click(element, ref)` — interact with elements
+- `browser_press_key(key)` — keyboard actions
+- `browser_resize(width, height)` — test different viewports
+
+Also read frontend source code (CSS, Tailwind config, component files) to understand design tokens, theme setup, and design system choices.
+
+---
+
+### Part A: Technical Visual Checks
+
+1. **Viewport matrix:**
+   For each page/route, test on:
+   - Mobile: 375×812 (iPhone)
+   - Tablet: 768×1024 (iPad)
+   - Desktop: 1440×900
+   - Wide: 1920×1080
+   Screenshot each combination. Flag: overlapping elements, horizontal scroll, cut-off content, invisible buttons.
+
+2. **State completeness:**
+   Check every page for all possible states:
+   - **Empty** — no data: meaningful placeholder or broken layout?
+   - **Loading** — skeleton/spinner or content flash/layout shift?
+   - **Error** — styled page with recovery path or raw error?
+   - **Partial** — some data loaded, some failed: graceful degradation?
+   Screenshot each state.
+
+3. **Overflow and truncation:**
+   - Very long text, numbers, file names, emails — ellipsis or layout break?
+   - Dynamic content overflowing containers?
+   - Tables with many columns — horizontal scroll or squished?
+
+4. **Dark/light theme** (if applicable):
+   - All elements visible in both modes?
+   - No hardcoded colors bypassing the theme?
+   - Images/icons adapt?
+
+---
+
+### Part B: Deep Aesthetic Evaluation (CORE)
+
+This is the main deliverable of UX/UI Visual testing. Evaluate each page through multiple design lenses. Be brutally honest but constructive — every criticism must come with a specific recommendation.
+
+#### B1. First Impression (3-second test)
+
+For each page, open it fresh and answer within 3 seconds of looking at the screenshot:
+- What is this page about? (If unclear → hierarchy problem)
+- What should I do here? (If unclear → CTA problem)
+- Do I want to stay or leave? (If leave → aesthetic/trust problem)
+- Does it feel professional? (If not → polish problem)
+
+Rate the gut feeling: positive / neutral / negative. Negative = mandatory finding.
+
+#### B2. Visual Composition & Balance
+
+- **Layout grid** — is there an underlying grid structure? Or elements placed seemingly at random?
+- **Visual weight distribution** — is the page balanced (left-right, top-bottom)? Or top-heavy, lopsided?
+- **Alignment** — are elements aligned to a consistent grid? Misaligned elements by 2-3px create subconscious unease
+- **Grouping (Gestalt proximity)** — are related items visually grouped? Is there enough separation between unrelated groups?
+- **Symmetry vs intentional asymmetry** — if asymmetric, does it feel intentional or accidental?
+- **Visual flow** — does the eye naturally follow a logical path (Z-pattern or F-pattern for content pages)?
+- **Density zones** — are there areas that are too dense vs too empty on the same page?
+
+#### B3. Color & Palette
+
+Read the CSS/Tailwind theme config and evaluate:
+- **Palette size** — how many distinct colors? (Ideal: 1 primary, 1-2 accents, 2-3 neutrals, semantic colors for status)
+- **60-30-10 rule** — ~60% dominant (background), ~30% secondary (cards, surfaces), ~10% accent (CTAs, highlights)?
+- **Color harmony** — complementary, analogous, triadic? Or random?
+- **Semantic consistency** — red always=danger, green always=success, yellow always=warning? Or mixed meanings?
+- **Saturation balance** — are colors overly saturated (eye strain) or too muted (feels lifeless)?
+- **Background layers** — clear visual depth? (page bg → card bg → element bg) Or flat/confusing?
+- **Accent usage** — is the accent color used sparingly for emphasis, or overused (losing impact)?
+- **Dark surfaces** — if dark theme: are there enough contrast levels between surfaces, or is it "all one shade of gray"?
+
+#### B4. Typography
+
+Read font imports, Tailwind typography config, CSS:
+- **Font choice** — is it appropriate for the product type? (SaaS/dashboard → clean sans-serif; creative → more expressive)
+- **Font pairing** — if multiple fonts, do they complement each other? (Same font, different weights is safer than mismatched fonts)
+- **Type scale** — is there a consistent scale? (e.g., 12/14/16/20/24/32) Or random sizes everywhere?
+- **Hierarchy depth** — at least 3-4 levels clearly distinguishable: page title > section heading > body > caption/secondary
+- **Line height** — body text at 1.5-1.7× is comfortable. Headings at 1.1-1.3×. Check actual values.
+- **Line length** — 50-75 characters per line is optimal for readability. Wider = hard to track lines. Check content areas.
+- **Font weight usage** — too many weights on one page (thin, regular, medium, semibold, bold) = visual noise. Limit to 2-3 per page.
+- **Text contrast** — sufficient contrast against background? Secondary text not too faint?
+- **Number formatting** — tabular figures for tables/data? Monospace for code? Proper thousand separators?
+
+#### B5. Iconography & Visual Assets
+
+- **Icon style consistency** — all outline, all filled, or all duotone? Mixed styles = amateur look
+- **Icon size consistency** — same-purpose icons same size? Navigation icons same weight as content icons?
+- **Icon metaphors** — are icons recognizable? Does the "export" icon look like export? Or ambiguous abstract shapes?
+- **Icon-to-text alignment** — vertically centered with adjacent text? Or shifted up/down?
+- **Illustrations/images** — consistent style? Professional quality? Or mix of stock photos, screenshots, and clipart?
+- **Favicons and branding** — present and crisp? Or missing/default/pixelated?
+- **Decorative elements** — purposeful and subtle, or distracting?
+
+#### B6. Component Craft
+
+Evaluate the quality of individual UI components:
+- **Buttons** — do they look "clickable"? Visual distinction between primary/secondary/tertiary/destructive? Appropriate padding? Consistent border-radius?
+- **Inputs & forms** — clear affordance (looks like you can type)? Focus state obvious? Error state informative? Labels properly positioned?
+- **Cards** — consistent padding, shadow depth, border-radius? Content well-structured inside?
+- **Tables** — header row distinct? Row separation (zebra/lines/spacing)? Sorting indicators? Responsive behavior?
+- **Modals/dialogs** — appropriate size? Overlay dimming? Close affordance? Not covering critical info?
+- **Navigation** — active state clear? Current location obvious? Breadcrumbs where needed?
+- **Tooltips/popovers** — styled consistently? Positioned well? Arrow pointing correctly?
+- **Badges/tags/chips** — readable at small size? Color-coded meaningfully? Not overused?
+- **Notifications/toasts** — positioned well? Visually distinct by type (success/error/info)? Auto-dismiss or manual?
+
+Rate component library maturity: custom/polished → using UI kit well → using UI kit poorly → unstyled/default HTML.
+
+#### B7. Motion & Micro-interactions
+
+Navigate through the app, interact with elements, and evaluate:
+- **Page transitions** — smooth or jarring instant switch?
+- **Hover effects** — subtle and helpful, or absent/excessive?
+- **Loading transitions** — content fades in gracefully, or pops in with layout shift?
+- **Button feedback** — click produces visual response (ripple, scale, color change)?
+- **Form interactions** — focus transition smooth? Validation appears gracefully?
+- **Scroll behavior** — smooth scrolling? Sticky headers? Scroll-triggered animations (if any) — tasteful or distracting?
+- **Open/close animations** — modals, dropdowns, sidebars: animated or instant?
+- **Overall motion feel** — cohesive timing (all ~200-300ms)? Or inconsistent (some instant, some slow)?
+- If no animations at all: note as "feels static/dead" — even subtle transitions (150ms fade) add perceived quality.
+
+#### B8. Information Architecture & Visual Load
+
+- **Page purpose clarity** — can you state what each page does in one sentence?
+- **Information density** — count visible elements (buttons, links, data points, labels) per screen. >50 = likely overloaded.
+- **Progressive disclosure** — is complexity hidden behind expand/collapse, tabs, "show more"? Or everything dumped on screen at once?
+- **Whitespace** — measure the breathing room. Is there consistent padding between sections? Or elements crammed together?
+- **Visual noise audit** — count decorative-only elements (borders, separators, background patterns, shadows) that don't serve a functional purpose. Each adds cognitive load.
+- **Competing actions** — how many buttons/links are visible at once? If >5 actions visible, user may feel paralyzed.
+- **Data presentation** — large datasets: paginated, virtualized, or ALL rendered? Charts: clear or cluttered? Numbers: formatted or raw?
+- **Content hierarchy** — primary content occupies >60% of screen? Or sidebar/header/footer consume too much?
+
+#### B9. Emotional Tone & Brand Fit
+
+- **What emotion does the design evoke?** (trustworthy, playful, serious, cold, warm, corporate, startup-casual)
+- **Is it appropriate for the domain?** (security tool should feel reliable; creative tool should feel inspiring; admin panel should feel efficient)
+- **Consistency of tone** — does every page feel like the same product? Or some pages feel like different apps glued together?
+- **Copywriting quality** (if visible) — button labels clear? Error messages helpful or cryptic? Headings descriptive?
+- **"Crafted" vs "thrown together"** — does it feel like someone cared about every detail? Or are there signs of "just make it work"?
+
+#### B10. Competitive Context
+
+Based on the detected stack and project type:
+- **What category is this product?** (admin panel, dashboard, SaaS, e-commerce, internal tool, etc.)
+- **What do best-in-class products in this category look like?** (reference general patterns, not specific competitors)
+- **How does this compare?** — significantly below average / below average / average / above average / excellent
+- **Biggest gap** — what ONE change would most improve the perceived quality?
+
+---
+
+### Part B Summary: Page Scorecard
+
+Rate each page on each dimension (1-5 scale):
+
+| Dimension | 1 (Poor) | 3 (Acceptable) | 5 (Excellent) |
+|-----------|----------|-----------------|----------------|
+| First Impression | Confusing, want to leave | Functional, unremarkable | Clear, inviting, professional |
+| Composition | No grid, random placement | Basic structure, some issues | Balanced, intentional layout |
+| Color | Clashing or monotone | Functional, some inconsistency | Harmonious, purposeful |
+| Typography | Hard to read, random sizes | Readable, basic hierarchy | Beautiful type, clear scale |
+| Iconography | Mixed styles, unclear meaning | Consistent but generic | Cohesive, clear, polished |
+| Components | Default/unstyled HTML feel | UI kit basics, some rough edges | Crafted, polished, delightful |
+| Motion | Static/dead or janky | Some transitions, inconsistent | Smooth, cohesive, purposeful |
+| Visual Load | Overwhelming or barren | Manageable, some clutter | Clean, focused, breathable |
+| Emotional Tone | Off-putting or inappropriate | Neutral, generic | On-brand, confident, trustworthy |
+
+**Overall aesthetic score** = average of all dimensions, rounded.
+
+Scoring rules:
+- **1-2 overall** → P2 bug: "Design quality critically below standard — detailed redesign recommendations attached"
+- **3 on any dimension** → P3 bug per dimension with specific improvement steps
+- **4-5 overall** → no bugs, note positives and minor polish suggestions as P4
+
+**CRITICAL: Be specific and actionable.** Every score below 4 MUST include:
+- What exactly is wrong (with screenshot reference)
+- Why it matters (impact on user perception/usability)
+- How to fix it (concrete CSS/component/layout change — not vague "make it better")
+
+Example of GOOD feedback:
+> "The events table (score 2: Visual Load) shows 12 columns with no horizontal priority. The user's eye has nowhere to land. Recommendation: hide columns 7-12 behind a 'More' expand, increase row height from 32px to 44px, add subtle zebra striping with bg-muted/50, and make the first column (timestamp) sticky on horizontal scroll."
+
+Example of BAD feedback:
+> "The table looks cluttered. Consider improving the layout."
+
+---
+
+### Part C: Technical Polish Checks
+
+9. **Interactive states:**
+   For buttons, links, inputs — check:
+   - Hover state (cursor changes, visual feedback)
+   - Active/pressed state
+   - Focus state (visible ring for keyboard users)
+   - Disabled state (visually distinct, not clickable)
+
+10. **Design token consistency:**
+    Read CSS/Tailwind config. Check:
+    - Color palette defined in config vs hardcoded hex values in components?
+    - Spacing scale consistent (4px/8px grid)?
+    - Border-radius values from a limited set or random?
+    - Shadow values consistent or ad-hoc?
+    - If using a UI library (shadcn, Radix, MUI): are customizations consistent or scattered overrides?
+
+For each issue:
+- Screenshot (mandatory for every visual finding)
+- Viewport where it occurs
+- Severity: P2 if design critically below standard, P3 if noticeably subpar, P4 if minor polish
+- Element location (page, component)
+- Specific recommendation (not vague)
+
+Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/ux-ui-visual-report.md`
+
+```markdown
+# UX/UI Visual Report
+
+## Executive Summary
+- Overall aesthetic score: {N}/5
+- Strongest areas: {list}
+- Weakest areas: {list}
+- Single biggest improvement opportunity: {description}
+
+## Page Scorecards
+### {Page Name}
+| Dimension | Score | Key Finding |
+|-----------|-------|-------------|
+| First Impression | N | ... |
+| Composition | N | ... |
+| Color | N | ... |
+| Typography | N | ... |
+| Iconography | N | ... |
+| Components | N | ... |
+| Motion | N | ... |
+| Visual Load | N | ... |
+| Emotional Tone | N | ... |
+| **Overall** | **N** | ... |
+
+**Screenshots:** [list]
+**Top issues:** [numbered list with specific recommendations]
+
+[Repeat for each page]
+
+## Cross-Page Analysis
+
+### Design System Health
+| Token | Defined | Consistent | Issues |
+(colors, typography, spacing, radii, shadows)
+
+### Viewport Matrix
+| Page | Mobile | Tablet | Desktop | Wide | Issues |
+
+### State Completeness
+| Page | Empty | Loading | Error | Partial |
+
+### Component Quality
+| Component | Craft Level | Issues | Recommendation |
+
+### Motion Audit
+| Interaction | Has Animation | Duration | Easing | Quality |
+
+## Prioritized Recommendations
+1. [P2] {Critical design issue — with before/after description}
+2. [P3] {Notable issue — with specific fix}
+3. [P3] {Notable issue — with specific fix}
+...
+
+## Positive Highlights
+[What the design does WELL — important for balanced feedback]
+
+## Bugs Found
+[structured bug entries — only for scores ≤3]
+```
+
+---
+
+### Test Type: Web Bug Hunting
+
+**PREREQUISITE:** Services must be running. Health check must pass.
+
+**Agent:** Opus, full access + MCP
+
+```
+Task(
+  subagent_type="oh-my-claudecode:executor-high",
+  model="opus",
+  prompt=<profile + discovery + all prior reports + instructions below>
+)
+```
+
+**Instructions:**
+
+You are performing exploratory bug hunting on "{profile.project}" web interface.
+
+Web URL: {profile.services.web_url}
+API URL: {profile.services.api_url}
+
+MANDATORY: Use MCP Playwright for ALL web testing.
+
+This is NOT scripted flow testing (that's E2E Acceptance). This is **exploratory testing** — you are a tester trying to BREAK the application through creative, unexpected interactions.
+
+Workflow:
+1. **Console errors audit:**
+   Navigate to every page/route. After each navigation:
+   - Check browser console for JS errors, warnings, unhandled promise rejections
+   - Record: page URL, error message, stack trace if available
+   - Any console error = at least P3
+
+2. **Broken links and navigation:**
+   For every link and button on every page:
+   - Click it — does it go where expected?
+   - Any 404, blank page, or wrong destination = bug
+   - Check: dead links to removed pages/features?
+
+3. **State management bugs:**
+   - Navigate Page A → Page B → back to Page A. Is state preserved correctly?
+   - Open a resource, navigate away, come back — stale data?
+   - Perform action (create/edit/delete), navigate elsewhere, return — reflected?
+   - Open same page in "two tabs" (navigate, go back) — any conflict?
+
+4. **URL manipulation:**
+   - Change URL parameters manually (IDs, filters, page numbers)
+   - Use invalid IDs in URLs — graceful 404 or crash?
+   - Use SQL injection / XSS payloads in URL parameters — reflected in page?
+   - Remove required query params — how does page handle it?
+   - Navigate directly to deep pages without prior navigation
+
+5. **Rapid interactions:**
+   - Double-click submit buttons — duplicate submissions?
+   - Click a link during page load — correct behavior?
+   - Rapidly switch between tabs/sections
+   - Submit form while previous request still pending
+
+6. **Form stress testing:**
+   - Paste extremely long text (10,000 chars) into fields
+   - Paste rich text / HTML into plain text fields
+   - Use emoji, Unicode, RTL text, zero-width chars
+   - Browser autofill — does it work correctly?
+   - Tab through form fields — correct order?
+   - Submit with browser dev tools (bypass frontend validation)
+
+7. **Network edge cases:**
+   If API endpoints are known:
+   - What does UI show when API returns 500?
+   - What does UI show when API returns empty data vs error?
+   - Does UI handle slow responses (show loading)?
+   - Does UI retry or show timeout message?
+
+8. **Context from prior test phases:**
+   Read reports from other phases. If backend tests found bugs:
+   - Try to trigger those bugs from the UI
+   - Check if UI masks or surfaces the backend error
+   If security tests found XSS vectors:
+   - Try them in UI input fields
+   If data integrity tests found inconsistencies:
+   - Verify in the UI display
+
+For each bug:
+- Steps to reproduce (exact clicks, text entered, URLs)
+- Screenshot
+- Console errors if any
+- Expected vs actual behavior
+- Severity: P1 if data loss/corruption, P2 if feature broken, P3 if edge case, P4 if cosmetic
+
+Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/web-bug-hunting-report.md`
+
+```markdown
+# Web Bug Hunting Report
+
+## Console Errors
+| Page | Error | Severity | Reproducible |
+
+## Broken Links
+| Page | Link Text | Expected Destination | Actual Result |
+
+## State Bugs
+| Scenario | Expected | Actual | Severity |
+
+## URL Manipulation
+| URL Pattern | Input | Expected | Actual |
+
+## Rapid Interaction Bugs
+| Action | Expected | Actual | Severity |
+
+## Form Edge Cases
+| Form | Input Type | Expected | Actual |
+
+## Network Resilience
+| Scenario | Expected UI | Actual UI | Severity |
+
+## Bugs Found
+[structured bug entries]
+```
+
+---
+
 ### Test Type: Error Handling
 
 **Agent:** Opus, full access
@@ -864,7 +1384,9 @@ Workflow:
      - TODO/FIXME/HACK comments near error handling
    - For each found: write a test that triggers that code path and verify behavior
 
-Write tests using project's test framework. Use mocking/patching for dependency failures.
+If `audit_mode == "hybrid"`: Write proposed resilience tests to `{run_dir}/proposed-tests/test_error_{service}.{ext}`.
+If `audit_mode == "readonly"`: Document error handling gaps in the report only.
+Do NOT write into the project test directory. Use mocking/patching for dependency failures in proposed tests.
 
 Output: `.bishx-test/{YYYY-MM-DD_HH-MM}/error-handling-report.md`
 
@@ -921,9 +1443,10 @@ Examples:
 Epic: "QA: {TestType}"                          <- created once, reused across runs
 |
 +-- Feature: "Run #{N} — {YYYY-MM-DD}"          <- each /bishx:test invocation
-|   +-- Task: [{severity}] {bug title}
-|   |   +-- description: full bug report
-|   +-- Task: [{severity}] {bug title}
+|   +-- Task: [P2] bug title                    <- bug
+|   +-- Task: [P3] bug title                    <- bug
+|   +-- Task: [Proposed] test_deep_parser.py    <- proposed test (hybrid mode)
+|   +-- Task: [Proposed] test_api_upload.py     <- proposed test (hybrid mode)
 |   +-- ...
 ```
 
@@ -965,6 +1488,16 @@ bd create "[P{n}] {short title}" --type bug --parent {feature_id} --priority {0-
 
 Priority mapping: P1=1, P2=2, P3=3, P4=4 (bd uses 0-4 where 0=highest).
 
+#### Creating tasks (proposed tests) — hybrid mode only:
+
+For each proposed test file, create a task under the same feature:
+
+```bash
+bd create "[Proposed] {test_filename} — {N} tests for {module}" --type task --parent {feature_id} --priority 3 --description "{proposed test description}"
+```
+
+Proposed test tasks are always priority 3 (low) — they are suggestions, not bugs.
+
 ### 4.3 Bug Description Format
 
 Every bd task MUST contain:
@@ -996,6 +1529,12 @@ Every bd task MUST contain:
 - Test file: {path to test that caught this}
 - Logs: {relevant log output if any}
 
+### Proposed Test (hybrid mode)
+- **File:** `{run_dir}/proposed-tests/{test_filename}`
+- **Reproduces this bug:** yes/partially/no (coverage only)
+- **How to use:** `cp {run_dir}/proposed-tests/{test_filename} {project_test_dir}/ && {test_cmd}`
+(Omit this section in readonly mode or if no proposed test covers this bug)
+
 ### Where to Fix
 - **File:** {file_path}:{line_number}
 - **What:** {Specific guidance — what to change, add, or remove}
@@ -1004,6 +1543,37 @@ Every bd task MUST contain:
 ### Context
 {How this was discovered. Coverage gap? Edge case? Random exploration?
 Any additional context that helps a developer understand the full picture.}
+```
+
+### 4.4 Proposed Test Description Format (hybrid mode only)
+
+Every proposed test bd task MUST contain:
+
+```markdown
+## [Proposed] {test_filename}
+
+**File:** `{run_dir}/proposed-tests/{test_filename}`
+**Target module:** {source_file}:{line_range}
+**Test type:** {which phase produced this}
+**Tests count:** {N}
+**Found by:** bishx:test Run #{N}
+
+### What it tests
+{Brief description of what the test file covers — which functions, endpoints, or scenarios.}
+
+### Test cases
+1. {test_name} — {what it verifies}
+2. {test_name} — {what it verifies}
+3. ...
+
+### How to use
+1. Copy: `cp {run_dir}/proposed-tests/{test_filename} {project_test_dir}/`
+2. Review imports and fixtures — adapt to project context if needed
+3. Run: `{test_cmd} {project_test_dir}/{test_filename}`
+
+### Dependencies
+- Requires: {fixtures, test data, running services, etc.}
+- Framework: {pytest/vitest/jest/etc.}
 ```
 
 ### Severity Guide
@@ -1047,9 +1617,11 @@ After bd tasks are created, present a summary:
 ### Coverage Impact
 | Module | Before | After | Delta |
 
-### New Test Files
-- {path/to/test_deep_module.ext} — {N} tests
-- ...
+### Proposed Tests (hybrid mode only)
+| File | Tests | Target Module | Related Bugs | bd Task |
+- Location: `.bishx-test/{run}/proposed-tests/`
+- To use: `cp .bishx-test/{run}/proposed-tests/* {project_test_dir}/`
+- Each file has a bd task with full description — search `[Proposed]` in bd
 ```
 
 ---
@@ -1060,11 +1632,12 @@ After bd tasks are created, present a summary:
 2. **Profile-driven** — all commands, paths, URLs come from profile.json. No hardcoding.
 3. **Playwright MCP is MANDATORY** for web E2E. No curl/fetch substitutes for UI testing.
 4. **Do NOT fix bugs** — only find and report. The output is a bd task, not a code change.
-5. **New tests must NOT be test-fitted** — no hardcoded magic values, test behavior not implementation.
+5. **Proposed tests go to `{run_dir}/proposed-tests/` ONLY** — never write into the project tree. No test-fitting, no hardcoded magic values.
 6. **Screenshot every visual anomaly** — via browser_take_screenshot.
-7. **Keep test files** — they are useful for developers when fixing bugs.
+7. **Proposed test files are suggestions** — user decides whether to copy them into the project.
 8. **Exhaustive bug descriptions** — developer must be able to fix without asking questions.
 9. **Deduplicate** — same root cause found by multiple phases = one bd task, mention all evidence.
 10. **All agents are Opus** — no cost-cutting on test quality.
 11. **Adapt, don't fail** — if a test type is unavailable, skip it gracefully and inform the user.
 12. **Reuse bd epics** — same test type across runs shares one epic, each run is a feature.
+13. **Respect audit mode** — "readonly" means NO test files at all, only reports. "hybrid" means proposed tests in run dir.
