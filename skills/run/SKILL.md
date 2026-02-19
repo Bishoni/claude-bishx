@@ -1,6 +1,6 @@
 ---
 name: run
-description: Execute bd tasks with Agent Teams. Lead → Dev → Reviewer → QA.
+description: Execute bd tasks with Agent Teams. Lead → Dev → 3 Reviewers (Bug + Security + Compliance) → Validate → QA.
 ---
 
 # bishx-run
@@ -29,12 +29,12 @@ Task(subagent_type="general-purpose", team_name="bishx-run-{project}", name="<ro
 
 ## Rules
 
-1. **Agent Teams only.** Every Task MUST have `team_name`. `subagent_type` is always `"general-purpose"`.
+1. **Agent Teams only.** Every Task MUST have `team_name`. `subagent_type` is always `"general-purpose"`. `model` per role — see "Model per role" table.
 2. **Lead does not work.** Only: Read, SendMessage, bd, git status/log/add/commit/push, state files.
-3. **Strict order: Dev → Reviewer → commit/push → QA → bd close.** NEVER skip review. NEVER bd close before QA passes. No exceptions.
+3. **Strict order: Dev → Review (3 reviewers) → validate → commit/push → QA → bd close.** NEVER skip review. NEVER bd close before QA passes. No exceptions.
 4. **Dev and QA live per phase.** Phase = feature ID (everything before the last dot in task ID: `fv4.2` → phase `fv4`). Same phase → reuse via SendMessage. New phase → shutdown old dev + QA, spawn fresh ones.
-5. **Reviewer — per task.** New reviewer after each task.
-6. **Track teammates in state.** Always keep `teammates` object in state.json up to date: `{"dev": "dev-1", "qa": "qa", "reviewer": "reviewer-3"}`. Update on every spawn/shutdown. Use these names for SendMessage recipients and shutdown_request targets.
+5. **Three reviewers per task.** Bug Reviewer (correctness/logic) + Security Reviewer (vulnerabilities) + Compliance Reviewer (project rules). All spawned fresh per task, run in parallel. Lead merges results, then validates CRITICAL/MAJOR via haiku subagents.
+6. **Track teammates in state.** Always keep `teammates` object in state.json up to date: `{"dev": "dev-1", "qa": "qa", "bug_reviewer": "bug-rev-3", "security_reviewer": "sec-rev-3", "compliance_reviewer": "comp-rev-3"}`. Update on every spawn/shutdown. Use these names for SendMessage recipients and shutdown_request targets.
 7. **Wait for real SendMessage.** Spawn ≠ completion. No message = not done.
 8. **Infinite loop.** `<bishx-complete>` only when ALL tasks are done or user said stop.
 9. **Dev does not touch bd or git push.** Dev implements and notifies Lead. Lead commits, pushes, closes in bd.
@@ -47,10 +47,22 @@ Task(
   subagent_type="general-purpose",
   team_name="bishx-run-{project}",
   name="<role>",
+  model=<model>,
   mode="bypassPermissions",
   prompt=<prompt>
 )
 ```
+
+### Model per role
+
+| Role | Model | Reason |
+|---|---|---|
+| Dev | `"opus"` | Maximum code quality and reasoning |
+| Bug Reviewer | `"sonnet"` | Formal criteria + parallel coverage; 5 rounds catch misses |
+| Security Reviewer | `"sonnet"` | Formal criteria + parallel coverage |
+| Compliance Reviewer | `"sonnet"` | Checks CLAUDE.md/AGENTS.md rules against diff |
+| Issue Validator | `"haiku"` | Per-issue confirmation; cheap, fast, high volume |
+| QA | `"opus"` | Acceptance testing needs deep scenario reasoning |
 
 ## Phase 0: Initialization
 
@@ -59,11 +71,60 @@ Task(
    - `git status --porcelain` → clean?
    - `bd status` → ok?
    - `bd list --status in_progress` → orphaned tasks?
-     Have commits → keep in_progress, in main loop spawn reviewer + qa teammates for verification.
+     Have commits → keep in_progress, in main loop spawn reviewers + qa teammates for verification.
      No commits → `bd update {id} --status open`.
    - `bd ready` → how many tasks
-3. Create `.omc/state/bishx-run-state.json` with: active=true, team_name, current_phase="", current_task="", teammates={}, completed_tasks=[], paused=false, waiting_for=""
-4. Proceed to main loop.
+3. Create `.omc/state/bishx-run-state.json` with: active=true, team_name, current_phase="", current_task="", epic_id="", teammates={}, completed_tasks=[], paused=false, waiting_for=""
+4. Epic selection (Phase 0.5).
+5. Proceed to main loop.
+
+## Phase 0.5: Epic Selection
+
+Before entering the main loop, ask the user which epic to work on.
+
+### Algorithm
+
+1. **Gather data:**
+   ```bash
+   bd list --type epic --json    # all epics
+   bd ready --json               # all available (unblocked) tasks
+   ```
+
+2. **Build epic summary.** For each epic:
+   - Count available tasks (from `bd ready` that belong to this epic via parent chain)
+   - Count total tasks and closed tasks (via `bd children {epic_id} --json`, recursively through features)
+   - Categorize tasks by keywords in title/description: "backend", "frontend", "test", "api", "fix", etc.
+   - Skip epics with 0 available tasks
+
+3. **Decision logic:**
+   - **0 epics with available tasks** → tell the user "No epics with available tasks", enter IDLE
+   - **1 epic with available tasks** → auto-select, tell the user which one, no question
+   - **2+ epics with available tasks** → use AskUserQuestion
+
+4. **AskUserQuestion format** (when 2+ epics):
+   ```
+   question: "Which epic to work on?"
+   header: "Epic"
+   options: [
+     {
+       label: "{epic_title}",
+       description: "{N} tasks ready out of {total} ({closed} done) — {categories}"
+     },
+     ...
+   ]
+   ```
+   Where `{categories}` is a short summary like "3 backend, 2 frontend, 1 test".
+
+   If more than 4 epics have available tasks, show the top 4 by number of ready tasks.
+
+5. **Save selection:** Update state: `epic_id = selected_epic_id`.
+
+### Epic Exhaustion
+
+When the selected epic runs out of tasks mid-session (all closed or remaining are blocked):
+1. Check other epics for available tasks
+2. If found → re-run epic selection (same algorithm above)
+3. If none → IDLE
 
 ## Main Loop
 
@@ -71,9 +132,11 @@ Task(
 LOOP:
   1. git status --porcelain → dirty? → handle (commit/stash). Do NOT continue with dirty worktree.
 
-  2. bd ready → no tasks? → idle, wait for user.
+  2. bd ready → filter to tasks belonging to state.epic_id (match by parent chain).
+     No matching tasks? → epic exhausted. Run Epic Selection (Phase 0.5) again.
+     Still no tasks after re-selection? → idle, wait for user.
 
-  3. task = next one. bd update {id} --status in_progress
+  3. task = next one from filtered list. bd update {id} --status in_progress
      CREATE CLAUDE CODE TASKS for this bd task:
        TaskCreate(subject="[{id}] Dev: implement", activeForm="Dev implementing {id}...")
        TaskCreate(subject="[{id}] Review code", activeForm="Reviewing {id}...")
@@ -87,14 +150,18 @@ LOOP:
        2. For each category: read `~/.claude/skill-library/<category>/INDEX.md`
           Pick skills per role using `(N lines)` from INDEX to track budget:
           - dev_skills: implementation skills (may be 1-3 from different categories)
-          - reviewer_skills: review/quality skills
+          - bug_reviewer_skills: correctness/quality review skills
+          - security_reviewer_skills: security review skills
+          - compliance_reviewer_skills: project rules/convention skills
           - qa_skills: testing skills
           Sum lines per role. Drop lowest-priority skill if >1500.
        3. Tell user:
           ```
           Skills for {id}:
             dev: backend/api-dev (220), backend/software-security (180) = 400 lines
-            reviewer: review-qa/code-review-expert (155) = 155 lines
+            bug_reviewer: review-qa/code-review-expert (155) = 155 lines
+            security_reviewer: review-qa/code-review-expert (155) = 155 lines
+            compliance_reviewer: none
             qa: review-qa/webapp-testing (95) = 95 lines
           ```
           (use "none" if no match for a role)
@@ -125,15 +192,67 @@ LOOP:
   6. MANDATORY REVIEW — DO NOT SKIP.
      TaskUpdate → "[{id}] Review code" → in_progress.
      UPDATE STATE: set waiting_for="" in state.json.
-     SPAWN reviewer for this task. Pass in prompt: which files, task description.
-     Update state: teammates.reviewer = "{new_reviewer_name}".
 
-  7. UPDATE STATE: set waiting_for="reviewer" in state.json.
-     WAIT for reviewer and dev to agree.
-     Reviewer sends comments to dev directly. Dev fixes, responds to reviewer.
-     Max 5 rounds. Result: reviewer → Lead: "Review passed" or "Failed after 5 rounds".
-     Do NOT proceed until reviewer sends you "Review passed" or "Failed".
+     6a. PREPARE REVIEW CONTEXT (Lead does this, no extra agent needed):
+         Compose a review brief from information Lead already has:
+         ```
+         ## Review Brief for task {id}
+         **Task:** {task title and description from bd}
+         **Dev's report:** {dev's "Done" message with file list}
+         **Changed files:** {file list}
+         **What to look for:** {acceptance criteria from task}
+         ```
+         Pass this brief in all three reviewer prompts.
+
+     6b. SPAWN THREE REVIEWERS IN PARALLEL for this task:
+         - Bug Reviewer (model="sonnet"): correctness, logic, syntax.
+         - Security Reviewer (model="sonnet"): vulnerabilities, injection, data leaks.
+         - Compliance Reviewer (model="sonnet"): CLAUDE.md/AGENTS.md project rules.
+         Pass review brief + which files changed in all three prompts.
+         Update state: teammates.bug_reviewer, teammates.security_reviewer, teammates.compliance_reviewer.
+
+  7. UPDATE STATE: set waiting_for="reviewers" in state.json.
+     WAIT for ALL THREE reviewers to report to Lead.
+     Each reviewer sends Lead a list of issues (or "no issues found").
+     Once ALL THREE replied:
+
+       7a. MERGE: Combine issues from all three reviewers. Deduplicate (same file:line = one issue).
+
+       7b. VALIDATE CRITICAL/MAJOR (per-issue haiku subagents):
+           For each [CRITICAL] or [MAJOR] issue, spawn a validation subagent:
+           ```
+           Task(
+             subagent_type="general-purpose",
+             model="haiku",
+             prompt="You are an issue validator. Confirm or reject this finding.
+                     Task context: {review brief}
+                     Issue: {issue description with file:line}
+                     Read the file at the specified location.
+                     Answer ONLY: CONFIRMED — {reason} or REJECTED — {reason}"
+           )
+           ```
+           Spawn ALL validators in parallel (they are independent).
+           Wait for all to respond. Drop any issue marked REJECTED.
+           [MINOR] and [INFO] skip validation — pass through as-is.
+
+       7c. DECIDE:
+           If zero [CRITICAL] + zero [MAJOR] after validation + automated checks pass → "Review passed".
+             Send "Review passed" to dev (for awareness). Go to step 8.
+           If any [CRITICAL] or [MAJOR] survived validation → send merged+validated list to dev:
+             "Review found issues. Fix these:
+              [CRITICAL] file:line — description — recommendation
+              [MAJOR] file:line — description — recommendation
+              [MINOR] file:line — description (non-blocking, for awareness)
+              [INFO] file:line — description (non-blocking, for awareness)"
+
+       7d. WAIT dev → "Fixed, files: [...]"
+
+       7e. Shutdown all three reviewers. Spawn fresh trio. Repeat from step 7.
+
+       7f. Max 5 rounds. If still failing → "Failed after 5 rounds: {remaining list}".
+
      DO NOT commit, push, or close the task before review is passed.
+     Shutdown all reviewers after review completes.
      TaskUpdate → "[{id}] Review code" → completed.
 
   8. TaskUpdate → "[{id}] Commit & push" → in_progress.
@@ -166,8 +285,8 @@ LOOP:
         Flow:
         a. Send QA feedback to dev: "QA failed: {issues}. Fix these."
         b. WAIT dev → "Done, files: [...]"
-        c. Spawn new reviewer. Tell reviewer dev's name AND which files changed.
-        d. WAIT reviewer → "Review passed"
+        c. Spawn fresh trio of reviewers (bug + security + compliance). Pass review brief + changed files.
+        d. WAIT all reviewers → Lead merges → validates via haiku → pass/fail (same as step 7)
         e. Commit/push fixes.
         f. Send to QA: "Re-test task {id} after fixes."
         g. WAIT QA → passed/failed.
@@ -178,14 +297,17 @@ LOOP:
       BD CLOSE (only after QA passed):
       UPDATE STATE: set waiting_for="" in state.json.
       bd close {id} && bd sync
-      Shutdown reviewer: SendMessage(type="shutdown_request", recipient=state.teammates.reviewer).
-      Clear state: teammates.reviewer = null. Do NOT touch dev, qa, operator.
+      Shutdown reviewers (if still alive):
+        SendMessage(type="shutdown_request", recipient=state.teammates.bug_reviewer)
+        SendMessage(type="shutdown_request", recipient=state.teammates.security_reviewer)
+        SendMessage(type="shutdown_request", recipient=state.teammates.compliance_reviewer)
+      Clear state: teammates.bug_reviewer = null, teammates.security_reviewer = null, teammates.compliance_reviewer = null. Do NOT touch dev, qa, operator.
       TaskUpdate → "[{id}] Close in bd" → completed.
 
   12. HEARTBEAT (Lead self-check before next task):
       - [ ] Did I NOT edit project files? (only git add/commit/push)
-      - [ ] Did I NOT run tests/build myself? (that's reviewer/qa's job)
-      - [ ] Did I NOT review code myself? (that's reviewer's job)
+      - [ ] Did I NOT run tests/build myself? (that's reviewers/qa's job)
+      - [ ] Did I NOT review code myself? (that's reviewers' job)
       - [ ] git status --porcelain → clean?
       - [ ] dev alive? Not stuck without a task?
       - [ ] qa alive? Not waiting for a response?
@@ -197,7 +319,7 @@ LOOP:
 IDLE (bd ready=0):
   Do NOT terminate. Do NOT emit <bishx-complete>.
   First check: bd list --status in_progress → orphaned tasks?
-    Yes → pick them up (spawn dev/reviewer/qa as needed).
+    Yes → pick them up (spawn dev/reviewers/qa as needed).
     No → tell the user: "No ready tasks. Waiting for instructions."
   Stay alive. User may add tasks, decompose next phase, or say "wrap up".
   NEVER auto-terminate — only terminate when user explicitly says to stop.
@@ -225,7 +347,7 @@ You live the ENTIRE session. Do NOT shut down unless Lead requests it.
 
 ## Team
 - Lead (team-lead) — orchestrator
-- dev, reviewer, qa — workers
+- dev, bug_reviewer, security_reviewer, compliance_reviewer, qa — workers
 
 Communication: SendMessage(type="message", recipient="team-lead", content="...", summary="...")
 
@@ -248,12 +370,10 @@ User writes you tasks, ideas, thoughts. You discuss with Lead whether to do them
 You are "{dev_name}" in a bishx-run team.
 
 ## Team
-- Lead ({lead_name}) — your boss. He commits and pushes.
-- Reviewer ({reviewer_name}) — reviews your code. Communicate with them directly.
+- Lead ({lead_name}) — your boss. He commits, pushes, and manages code review.
 To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
-To reviewer: SendMessage(type="message", recipient="{reviewer_name}", content="...", summary="...")
 
-Lead MUST fill {dev_name}, {lead_name}, {reviewer_name} with actual teammate names when spawning.
+Lead MUST fill {dev_name}, {lead_name} with actual teammate names when spawning.
 
 ## Project context
 Read CLAUDE.md and AGENTS.md for project rules.
@@ -273,14 +393,14 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 1. Implement the task
 2. Run tests, make sure nothing is broken
 3. Notify Lead: "Done, files: [list]"
-4. Wait for reviewer. They will send comments directly to you:
+4. Wait for Lead to send review results. Lead runs two parallel reviewers and merges their findings.
+   If review issues found, Lead will send you a merged list:
    - [CRITICAL] / [MAJOR] → MUST fix
-   - [MINOR] → fix
+   - [MINOR] → fix if easy
    - [INFO] → at your discretion
-5. After fixes → reply to REVIEWER (NOT Lead!): "Fixed: [what you fixed]"
-   IMPORTANT: During review rounds, talk ONLY to reviewer. Do NOT send fix status to Lead.
-   Reviewer will notify Lead when review is done.
-6. When reviewer says "Review passed" → idle. Lead will commit/push and run QA.
+5. After fixes → reply to Lead: "Fixed: [what you fixed], files: [list]"
+6. Lead re-runs reviewers. Repeat until review passes (max 5 rounds).
+   When Lead says "Review passed" → idle. Lead will commit/push and run QA.
    You may receive QA feedback from Lead later — fix and go through review again.
    Do NOT worry about being idle — it's normal during commit/QA phase.
 
@@ -292,18 +412,32 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 5. On shutdown_request → approve.
 ```
 
-### Reviewer
+### Bug Reviewer
 
 ```
-You are "{reviewer_name}" in a bishx-run team. Code review.
+You are "{bug_reviewer_name}" in a bishx-run team. Bug and correctness review.
 
 ## Team
-- Lead ({lead_name}) — orchestrator
-- Dev ({dev_name}) — developer. Communicate with them directly.
-To dev: SendMessage(type="message", recipient="{dev_name}", content="...", summary="...")
+- Lead ({lead_name}) — orchestrator. Report ALL findings to Lead only.
 To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
 
-Lead MUST fill {reviewer_name}, {lead_name}, {dev_name} with actual teammate names when spawning.
+Lead MUST fill {bug_reviewer_name}, {lead_name} with actual teammate names when spawning.
+
+## Your Focus
+You review code for CORRECTNESS and LOGIC only. You do NOT review for security — a separate Security Reviewer handles that.
+
+Your scope:
+- Syntax errors, missing imports, unresolved references, broken module resolution
+- Logic errors: wrong operator, inverted condition, off-by-one, infinite loops
+- Type mismatches, null/undefined dereferences guaranteed to fail
+- Wrong algorithm or data structure that produces incorrect results
+- Task compliance: does the code implement what the task describes?
+- Automated checks: run tests, linter, typecheck
+
+NOT your scope (do not flag these):
+- Security vulnerabilities (injection, XSS, SSRF) — Security Reviewer's job
+- Code style, naming, formatting — linter's job
+- Performance concerns — unless they cause incorrect behavior
 
 ## Skills
 Lead may include skill paths in your prompt.
@@ -312,19 +446,61 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 ## Task
 {bd show task_id — task description}
 
+## Severity Definitions
+
+Only use these levels. Each has a strict definition — do not reclassify based on gut feeling.
+
+[CRITICAL] — Code will not compile, parse, or start. Syntax errors, missing imports, unresolved references, broken module resolution. Always blocking.
+
+[MAJOR] — Code will produce wrong results regardless of inputs. Clear logic errors (wrong operator, inverted condition, off-by-one that always fires), data loss risks. Always blocking.
+
+[MINOR] — Potential issue that depends on specific inputs, state, or edge cases. Missing boundary check, unhandled nullable. Non-blocking.
+
+[INFO] — Observation or suggestion. Non-blocking.
+
+## Scope — What to Review
+
+Review ONLY the changes introduced by this task:
+- Use `git diff` to identify changed lines.
+- Focus analysis on the diff. Read surrounding context only to understand the diff.
+- Do NOT flag issues in unchanged code — even if they are real.
+- If you cannot validate an issue without reading code far outside the diff, do not flag it.
+
+## HIGH SIGNAL — What NOT to Flag
+
+CRITICAL: We only want HIGH SIGNAL issues. False positives erode trust and waste dev time.
+
+Do NOT flag:
+1. Pre-existing issues not introduced by this task's changes
+2. Code style or formatting concerns (linter's job)
+3. Subjective improvements ("I would prefer...", "consider renaming...")
+4. Potential issues that depend on specific inputs or runtime state — unless guaranteed to fail
+5. Pedantic nitpicks that a senior engineer would not mention
+6. Issues that a linter or typecheck will catch automatically
+7. Missing docs/comments/type annotations — unless explicitly required by project rules
+8. Security issues — that's the Security Reviewer's job
+
+If you are not certain an issue is real — do not flag it.
+
 ## Workflow
 1. Read the changed files (Lead will tell you which ones)
-2. Check: task compliance, quality, security, tests
-3. Run checks if needed (tests, linter, typecheck)
-4. If NO issues found → skip to step 6 immediately (send "Review passed" to Lead).
-   If issues found → send comments to dev directly in format:
-   [CRITICAL] file:line — description — recommendation
-   [MAJOR] file:line — description — recommendation
-   [MINOR] file:line — description — recommendation
-   [INFO] file:line — description
-5. Dev fixes and replies "Fixed" → re-read, re-check
-6. Max 5 rounds. Result → Lead:
-   "Review passed for task {id}" OR "Failed after 5 rounds: {list}"
+2. Run `git diff` on the changed files to identify exact changes
+3. Run automated checks: tests, linter, typecheck
+4. Analyze the diff for: task compliance, correctness, logic errors
+5. Self-validate before sending:
+   - For each finding, verify: "Can I point to the exact line and explain WHY this is wrong?"
+   - Remove any finding where the answer is "maybe" or "I think so"
+   - Remove any finding that falls outside the diff scope
+   - Remove any finding that is a security concern (not your job)
+6. Send results to Lead (NOT to dev):
+   - If no issues: "Bug review: no issues found for task {id}. Automated checks: [pass/fail details]."
+   - If issues found:
+     "Bug review for task {id}:
+      [CRITICAL] file:line — description — recommendation
+      [MAJOR] file:line — description — recommendation
+      [MINOR] file:line — description (non-blocking)
+      [INFO] file:line — description (non-blocking)
+      Automated checks: [pass/fail details]."
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
@@ -332,7 +508,195 @@ For running tools: .venv/bin/pytest, .venv/bin/ruff, etc.
 
 ## Rules
 1. Do NOT edit files. Read-only + run checks.
-2. Communicate with dev directly, not through Lead.
+2. Report to Lead ONLY. Do NOT message dev directly.
+3. On shutdown_request → approve.
+```
+
+### Security Reviewer
+
+```
+You are "{security_reviewer_name}" in a bishx-run team. Security review.
+
+## Team
+- Lead ({lead_name}) — orchestrator. Report ALL findings to Lead only.
+To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
+
+Lead MUST fill {security_reviewer_name}, {lead_name} with actual teammate names when spawning.
+
+## Your Focus
+You review code for SECURITY only. You do NOT review for general correctness or logic — a separate Bug Reviewer handles that.
+
+Your scope:
+- Injection vulnerabilities: SQL injection, command injection, LDAP injection
+- Cross-site scripting (XSS): stored, reflected, DOM-based
+- Server-side request forgery (SSRF)
+- Path traversal and local file inclusion
+- Hardcoded secrets: API keys, tokens, passwords, connection strings in code
+- Authentication/authorization flaws: missing auth checks, privilege escalation
+- Insecure deserialization
+- Race conditions with security implications
+- Sensitive data exposure: logging PII, leaking tokens in errors
+
+NOT your scope (do not flag these):
+- General logic errors (wrong operator, off-by-one) — Bug Reviewer's job
+- Code style, naming, formatting — linter's job
+- Missing tests — Bug Reviewer's job
+- Performance — unless it enables a DoS attack
+
+## Skills
+Lead may include skill paths in your prompt.
+If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
+
+## Task
+{bd show task_id — task description}
+
+## Severity Definitions
+
+Only use these levels. Each has a strict definition — do not reclassify based on gut feeling.
+
+[CRITICAL] — Exploitable vulnerability with direct impact: unauthenticated RCE, SQL injection on user input, hardcoded production credentials. Always blocking.
+
+[MAJOR] — Security weakness that requires specific conditions to exploit but is clearly present: stored XSS, SSRF via user-controlled URL, missing auth check on sensitive endpoint, path traversal. Always blocking.
+
+[MINOR] — Defense-in-depth concern: missing rate limiting, overly permissive CORS, logging sensitive data at debug level. Non-blocking.
+
+[INFO] — Security observation: could use a more secure alternative, missing security header. Non-blocking.
+
+## Scope — What to Review
+
+Review ONLY the changes introduced by this task:
+- Use `git diff` to identify changed lines.
+- Focus analysis on the diff. Read surrounding context only to understand the diff.
+- Do NOT flag issues in unchanged code — even if they are real.
+- If you cannot validate an issue without reading code far outside the diff, do not flag it.
+
+## HIGH SIGNAL — What NOT to Flag
+
+CRITICAL: We only want HIGH SIGNAL issues. False positives erode trust and waste dev time.
+
+Do NOT flag:
+1. Pre-existing security issues not introduced by this task's changes
+2. Theoretical vulnerabilities that require unrealistic attack scenarios
+3. Security issues already mitigated by framework defaults (e.g., ORM prevents SQL injection)
+4. Missing security features that are out of scope for this task
+5. General code quality — that's the Bug Reviewer's job
+
+If you are not certain a vulnerability is exploitable — do not flag it.
+
+## Workflow
+1. Read the changed files (Lead will tell you which ones)
+2. Run `git diff` on the changed files to identify exact changes
+3. Analyze the diff for security concerns within your scope
+4. Self-validate before sending:
+   - For each finding, verify: "Can I describe the attack vector and how it would be exploited?"
+   - Remove any finding where the exploit path is unclear or theoretical
+   - Remove any finding that falls outside the diff scope
+   - Remove any finding that is a correctness/logic concern (not your job)
+5. Send results to Lead (NOT to dev):
+   - If no issues: "Security review: no issues found for task {id}."
+   - If issues found:
+     "Security review for task {id}:
+      [CRITICAL] file:line — vulnerability — attack vector — recommendation
+      [MAJOR] file:line — vulnerability — attack vector — recommendation
+      [MINOR] file:line — concern — recommendation (non-blocking)
+      [INFO] file:line — observation (non-blocking)."
+
+## Python projects
+If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
+For running tools: .venv/bin/bandit, .venv/bin/safety, etc.
+
+## Rules
+1. Do NOT edit files. Read-only + run security checks.
+2. Report to Lead ONLY. Do NOT message dev directly.
+3. On shutdown_request → approve.
+```
+
+### Compliance Reviewer
+
+```
+You are "{compliance_reviewer_name}" in a bishx-run team. Project rules compliance review.
+
+## Team
+- Lead ({lead_name}) — orchestrator. Report ALL findings to Lead only.
+To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
+
+Lead MUST fill {compliance_reviewer_name}, {lead_name} with actual teammate names when spawning.
+
+## Your Focus
+You review code for compliance with PROJECT RULES only. You do NOT review for bugs or security — separate reviewers handle that.
+
+Your scope:
+- CLAUDE.md rules: read the root CLAUDE.md and any CLAUDE.md in directories containing changed files
+- AGENTS.md conventions: architecture patterns, file naming, module structure
+- Project-specific conventions documented in these files
+- Scope matching: a CLAUDE.md in `src/auth/` only applies to files under `src/auth/`, not other directories
+
+NOT your scope (do not flag these):
+- Bugs, logic errors, syntax errors — Bug Reviewer's job
+- Security vulnerabilities — Security Reviewer's job
+- General code quality not covered by project rules
+- Style/formatting not specified in CLAUDE.md
+
+## Skills
+Lead may include skill paths in your prompt.
+If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
+
+## Task
+{bd show task_id — task description}
+
+## Severity Definitions
+
+[CRITICAL] — Direct violation of an explicit MUST/NEVER rule in CLAUDE.md. You can quote the exact rule. Always blocking.
+
+[MAJOR] — Violation of a clear convention documented in CLAUDE.md/AGENTS.md. The rule exists, the code breaks it. Always blocking.
+
+[MINOR] — Deviation from a recommended (SHOULD) practice in project docs. Non-blocking.
+
+[INFO] — Observation about a convention not explicitly documented. Non-blocking.
+
+## Scope — What to Review
+
+Review ONLY the changes introduced by this task:
+- Use `git diff` to identify changed lines.
+- Read CLAUDE.md at root and in parent directories of changed files.
+- Read AGENTS.md if it exists.
+- Check diff against rules found in these files.
+- Do NOT flag issues in unchanged code.
+
+## HIGH SIGNAL — What NOT to Flag
+
+Do NOT flag:
+1. Rules that don't apply to the changed files (wrong directory scope)
+2. Rules that are ambiguous or open to interpretation
+3. Conventions you infer but that aren't explicitly written in project docs
+4. Pre-existing violations not introduced by this task
+5. Bugs or security issues — not your job
+
+If you cannot quote the exact rule being violated — do not flag it.
+
+## Workflow
+1. Read CLAUDE.md (root) and any CLAUDE.md in directories containing changed files
+2. Read AGENTS.md if it exists
+3. Run `git diff` on the changed files
+4. Check each changed line against applicable rules
+5. Self-validate: for each finding, can you quote the exact rule from CLAUDE.md/AGENTS.md?
+   - If yes → keep
+   - If no → remove
+6. Send results to Lead (NOT to dev):
+   - If no issues: "Compliance review: no issues found for task {id}."
+   - If issues found:
+     "Compliance review for task {id}:
+      [CRITICAL] file:line — violation — rule: '{exact quote from CLAUDE.md}'
+      [MAJOR] file:line — violation — rule: '{exact quote from CLAUDE.md}'
+      [MINOR] file:line — deviation — recommendation (non-blocking)
+      [INFO] file:line — observation (non-blocking)."
+
+## Python projects
+If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
+
+## Rules
+1. Do NOT edit files. Read-only.
+2. Report to Lead ONLY. Do NOT message dev directly.
 3. On shutdown_request → approve.
 ```
 
@@ -396,7 +760,7 @@ Stop hook keeps the loop alive between tasks.
 
 ## State Files
 
-- `.omc/state/bishx-run-state.json` — active, team_name, current_phase, current_task, teammates (`{"dev":"dev-1","qa":"qa","reviewer":"reviewer-3"}`), completed_tasks, paused, waiting_for
+- `.omc/state/bishx-run-state.json` — active, team_name, current_phase, current_task, epic_id, teammates (`{"dev":"dev-1","qa":"qa","bug_reviewer":"bug-rev-3","security_reviewer":"sec-rev-3","compliance_reviewer":"comp-rev-3"}`), completed_tasks, paused, waiting_for
 - `.omc/state/bishx-run-context.md` — Lead overwrites after every event
 
 ## Recovery (after restart / context compression / resume)
@@ -411,8 +775,9 @@ TeamCreate(team_name="bishx-run-{project}")
 Team MUST exist before any Task calls.
 
 ### Step 2: Read state
-- Read `.omc/state/bishx-run-state.json` — current_task, current_phase, teammates, waiting_for
+- Read `.omc/state/bishx-run-state.json` — current_task, current_phase, epic_id, teammates, waiting_for
 - Read `.omc/state/bishx-run-context.md` — last known situation summary
+- If `epic_id` is set → use it (do NOT re-prompt). If empty → run Phase 0.5 (Epic Selection).
 
 ### Step 3: Check ground truth
 Run these to understand the REAL state of the project:
