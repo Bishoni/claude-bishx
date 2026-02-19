@@ -46,19 +46,67 @@ Not everything needs TDD. The key question:
 - Package installation
 - Glue/wiring code (imports, exports, routing tables)
 
-## Scoring Rubric
+## Test Architecture Check
 
-Score each criterion 1-5:
+For the plan's test suite, verify each of the following:
 
-| Criterion | 1 (Failing) | 3 (Partial) | 5 (Exemplary) |
-|-----------|-------------|-------------|----------------|
-| **Test-First Coverage** | No TDD or tests written after | Some tasks have TDD, many skip it | All applicable tasks use test-first |
-| **Test Quality** | Tests are trivial or tautological | Tests cover happy path only | Tests cover happy path, edge cases, error cases |
-| **Cycle Completeness** | Missing RED or REFACTOR phases | RED and GREEN present, REFACTOR missing | Full RED → GREEN → REFACTOR documented |
-| **Scope Appropriateness** | TDD forced on config/glue tasks | Mostly correct TDD/skip decisions | Perfect TDD/skip discrimination |
-| **Commit Granularity** | One giant commit at the end | Commits per task but no test separation | RED commit, GREEN commit, REFACTOR commit per cycle |
+- [ ] Tests are independent (no shared mutable state between tests)
+- [ ] Tests can run in any order
+- [ ] Test setup/teardown is idempotent
+- [ ] No test depends on another test's side effects
+- [ ] Test fixtures are isolated per test
 
-**Total: /25**
+Flag any violation as a TEST_ISOLATION issue at the appropriate severity.
+
+## Test Layer Coverage
+
+After reviewing all tasks, produce a layer coverage table. For each architectural layer present in the plan, identify which test types are planned and flag gaps.
+
+```markdown
+## Test Layer Coverage
+| Layer | Unit | Integration | E2E | Gap? |
+|---|---|---|---|---|
+| Validation | ✓ | — | — | OK (unit sufficient) |
+| API handler | ✓ | — | — | ⚠ Missing integration |
+| DB repository | ✓ | — | — | ⚠ Missing integration |
+```
+
+Rules for gap determination:
+- Business logic → unit tests sufficient
+- External integrations (DB, HTTP clients, queues) → need integration tests
+- Critical user flows → need E2E if the project has an E2E layer
+- Flag gaps where the test type is missing for the layer and would catch real bugs
+
+## Quantitative Scoring
+
+Compute each criterion from raw numbers, then fill the score table.
+
+### Formulas
+
+```
+tasks_needing_tdd          = count of tasks where TDD is required per heuristic
+tasks_with_tdd             = count of those tasks that have a proper RED phase
+
+Test-First Coverage        = (tasks_with_tdd / tasks_needing_tdd) * 5
+
+total_applicable           = tasks_with_tdd
+happy_path                 = tasks whose tests include at least one happy-path case
+edge_case                  = tasks whose tests include at least one edge/boundary case
+error_path                 = tasks whose tests include at least one error/failure case
+Test Quality               = ((happy_path + edge_case + error_path) / (total_applicable * 3)) * 5
+
+tasks_with_full_cycle      = tasks where RED + GREEN + REFACTOR are all explicitly present
+Cycle Completeness         = (tasks_with_full_cycle / tasks_with_tdd) * 5
+
+wrong_tdd_decisions        = tasks that forced TDD where it should be skipped, or skipped TDD where it was required
+Scope Appropriateness      = clamp(5 - (wrong_tdd_decisions * 1.5), 1, 5)
+
+tasks_with_proper_commits  = tasks that have separate RED / GREEN / REFACTOR commits (or at minimum test-first commit before impl commit)
+total_tasks                = total plan task count
+Commit Granularity         = (tasks_with_proper_commits / total_tasks) * 5
+```
+
+All scores rounded to one decimal place. Total = sum of five scores (max 25.0).
 
 ## What to Look For
 
@@ -92,14 +140,27 @@ Score each criterion 1-5:
 [X tasks reviewed, Y have proper TDD, Z need improvement]
 [Overall TDD compliance assessment]
 
-## Score: NN/25
-| Criterion | Score | Justification |
-|-----------|-------|---------------|
-| Test-First Coverage | N | [Why] |
-| Test Quality | N | [Why] |
-| Cycle Completeness | N | [Why] |
-| Scope Appropriateness | N | [Why] |
-| Commit Granularity | N | [Why] |
+## Score: NN.N/25
+| Criterion | Score | Raw Numbers | Justification |
+|-----------|-------|-------------|---------------|
+| Test-First Coverage | N.N | X/Y tasks with TDD | [Why] |
+| Test Quality | N.N | H happy + E edge + R error paths across Y tasks | [Why] |
+| Cycle Completeness | N.N | X/Y tasks with full RED→GREEN→REFACTOR | [Why] |
+| Scope Appropriateness | N.N | X wrong TDD decisions | [Why] |
+| Commit Granularity | N.N | X/Y tasks with proper commits | [Why] |
+
+## Coverage Metrics
+- Happy path coverage: X/Y tasks (N%)
+- Edge case coverage: X/Y tasks (N%)
+- Error path coverage: X/Y tasks (N%)
+- Boundary condition coverage: X/Y tasks (N%)
+- Specific inputs/outputs defined: X/Y tasks (N%)
+- Test isolation verified: X/Y tasks (N%)
+
+## Test Layer Coverage
+| Layer | Unit | Integration | E2E | Gap? |
+|---|---|---|---|---|
+| [Layer] | ✓/— | ✓/— | ✓/— | OK / ⚠ [missing type] |
 
 ## Task-by-Task Review
 
@@ -113,15 +174,39 @@ Score each criterion 1-5:
 
 [Repeat for each task]
 
-## Critical Issues (Must Fix)
-[Issues that fundamentally break TDD compliance]
+## Issues
 
-## Improvements (Should Fix)
-[Issues that would strengthen the TDD approach]
+### TDD-001
+- **Type:** MISSING_TDD / COSMETIC_TDD / MISSING_EDGE_CASE / TEST_ISOLATION / WRONG_SKIP
+- **Severity:** BLOCKING / IMPORTANT / MINOR
+- **Location:** Task N
+- **Description:** [What is wrong and why it matters]
+- **Required Fix:** [Exact change needed in the plan]
+- **Verification:** [How to confirm the fix is correct]
+
+[Repeat for each issue, numbered TDD-002, TDD-003, ...]
 
 ## Notes
 [Optional observations about testing patterns in the existing codebase that the plan should follow]
 ```
+
+### Issue Types Reference
+
+| Type | Meaning |
+|---|---|
+| MISSING_TDD | Task requires TDD but has no RED phase |
+| COSMETIC_TDD | Tests are present but do not constrain behavior (tautological, no specific inputs/outputs) |
+| MISSING_EDGE_CASE | Happy path only; edge/boundary/error cases absent |
+| TEST_ISOLATION | Tests share mutable state, depend on execution order, or have non-idempotent setup |
+| WRONG_SKIP | TDD skipped on a task that requires it, or TDD forced on a task that should skip it |
+
+### Severity Reference
+
+| Severity | Meaning |
+|---|---|
+| BLOCKING | Fundamentally breaks TDD compliance; plan must be revised before execution |
+| IMPORTANT | Weakens test suite significantly; should be fixed |
+| MINOR | Stylistic or low-risk gap; nice to fix |
 
 ## Critical Rules
 
@@ -130,3 +215,5 @@ Score each criterion 1-5:
 3. **Check specificity.** "Write tests" is not a RED phase. "Write test: `expect(validateEmail('bad')).toBe(false)`" is.
 4. **Verify test framework match.** The plan's tests should use the project's actual test framework.
 5. **Edge cases matter.** A test suite with only happy paths is incomplete. Check for boundary conditions, error cases, empty inputs.
+6. **Compute scores from counts.** Never assign a score without showing the raw numbers it derives from.
+7. **One issue per problem.** Do not merge distinct problems into a single TDD-NNN entry; give each its own numbered issue.
