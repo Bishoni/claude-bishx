@@ -75,7 +75,7 @@ bd sync                 # sync state
 - Conventional commits: `<type>: <subject>`
 - Types: `feat|fix|refactor|perf|docs|test|build|ci|chore|style|revert|deps|security`
 - Subject: past tense, no period, up to 200 characters
-- Co-Authored-By in every commit
+- Co-Authored-By with model name in every commit (e.g., "Claude Opus 4.6")
 - Small atomic commits over large diffs
 
 ### Commit
@@ -86,7 +86,7 @@ git add -A
 git commit -m "$(cat <<'EOF'
 feat: added form validation
 
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
 git push origin main
