@@ -33,7 +33,7 @@ Task(subagent_type="general-purpose", team_name="bishx-run-{project}", name="<ro
 2. **Lead does not work.** Only: Read, SendMessage, bd, git status/log/add/commit/push, state files.
 3. **Strict order: Dev → Review (3 reviewers) → validate → commit/push → QA → bd close.** NEVER skip review. NEVER bd close before QA passes. No exceptions.
 4. **Dev and QA live per phase.** Phase = feature ID (everything before the last dot in task ID: `fv4.2` → phase `fv4`). Same phase → reuse via SendMessage. New phase → shutdown old dev + QA, spawn fresh ones.
-5. **Three reviewers per task.** Bug Reviewer (correctness/logic) + Security Reviewer (vulnerabilities) + Compliance Reviewer (project rules). All spawned fresh per task, run in parallel. Lead merges results, then validates CRITICAL/MAJOR via haiku subagents.
+5. **Three reviewers per task.** Bug Reviewer (correctness/logic) + Security Reviewer (vulnerabilities) + Compliance Reviewer (project rules). All spawned fresh per task, run in parallel. Lead merges results, then validates CRITICAL/MAJOR via sonnet subagents.
 6. **Track teammates in state.** Always keep `teammates` object in state.json up to date: `{"dev": "dev-1", "qa": "qa", "bug_reviewer": "bug-rev-3", "security_reviewer": "sec-rev-3", "compliance_reviewer": "comp-rev-3"}`. Update on every spawn/shutdown. Use these names for SendMessage recipients and shutdown_request targets.
 7. **Wait for real SendMessage.** Spawn ≠ completion. No message = not done.
 8. **Infinite loop.** `<bishx-complete>` only when ALL tasks are done or user said stop.
@@ -61,7 +61,7 @@ Task(
 | Bug Reviewer | `"sonnet"` | Formal criteria + parallel coverage; 5 rounds catch misses |
 | Security Reviewer | `"sonnet"` | Formal criteria + parallel coverage |
 | Compliance Reviewer | `"sonnet"` | Checks CLAUDE.md/AGENTS.md rules against diff |
-| Issue Validator | `"haiku"` | Per-issue confirmation; cheap, fast, high volume |
+| Issue Validator | `"sonnet"` | Per-issue confirmation; better context understanding |
 | QA | `"opus"` | Acceptance testing needs deep scenario reasoning |
 
 ## Phase 0: Initialization
@@ -218,17 +218,20 @@ LOOP:
 
        7a. MERGE: Combine issues from all three reviewers. Deduplicate (same file:line = one issue).
 
-       7b. VALIDATE CRITICAL/MAJOR (per-issue haiku subagents):
+       7b. VALIDATE CRITICAL/MAJOR (per-issue sonnet subagents):
            For each [CRITICAL] or [MAJOR] issue, spawn a validation subagent:
            ```
            Task(
              subagent_type="general-purpose",
-             model="haiku",
+             model="sonnet",
              prompt="You are an issue validator. Confirm or reject this finding.
                      Task context: {review brief}
                      Issue: {issue description with file:line}
                      Read the file at the specified location.
-                     Answer ONLY: CONFIRMED — {reason} or REJECTED — {reason}"
+                     Answer ONLY:
+                       CONFIRMED — {why this is a real issue}
+                       or REJECTED — {specific reason the reviewer is wrong,
+                       e.g. 'variable defined on line 12', 'framework sanitizes automatically'}"
            )
            ```
            Spawn ALL validators in parallel (they are independent).
@@ -286,7 +289,7 @@ LOOP:
         a. Send QA feedback to dev: "QA failed: {issues}. Fix these."
         b. WAIT dev → "Done, files: [...]"
         c. Spawn fresh trio of reviewers (bug + security + compliance). Pass review brief + changed files.
-        d. WAIT all reviewers → Lead merges → validates via haiku → pass/fail (same as step 7)
+        d. WAIT all reviewers → Lead merges → validates via sonnet → pass/fail (same as step 7)
         e. Commit/push fixes.
         f. Send to QA: "Re-test task {id} after fixes."
         g. WAIT QA → passed/failed.
@@ -391,7 +394,7 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 
 ## Workflow
 1. Implement the task
-2. Run tests, make sure nothing is broken
+2. Run tests, linter, and formatter — make sure everything passes before reporting Done
 3. Notify Lead: "Done, files: [list]"
 4. Wait for Lead to send review results. Lead runs two parallel reviewers and merges their findings.
    If review issues found, Lead will send you a merged list:

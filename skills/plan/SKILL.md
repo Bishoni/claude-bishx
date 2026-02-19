@@ -24,6 +24,24 @@ Interview → Research → [Planner → Skeptic → TDD Reviewer → Critic] ×N
 
 **The loop continues until the Critic scores >=20/25 (APPROVED) or 5 iterations are reached.**
 
+## Session Directory
+
+Each planning session creates a timestamped directory inside `.bishx-plan/`:
+
+```
+.bishx-plan/
+  active                          ← text file with current session dir name
+  2026-02-19_14-35/               ← session directory
+    state.json
+    CONTEXT.md
+    RESEARCH.md
+    APPROVED_PLAN.md              ← final approved plan (Phase 4)
+    iterations/
+      01/ 02/ ...                 ← preserved for history
+```
+
+Throughout this document, `{SESSION}` refers to the session directory path (e.g., `.bishx-plan/2026-02-19_14-35`). You determine this path in Phase 0 and use it for ALL file operations.
+
 ## Signal Protocol
 
 You communicate phase transitions via two signals:
@@ -33,34 +51,42 @@ You communicate phase transitions via two signals:
 | `<bishx-plan-done>` | Current phase complete, ready for next. **ALWAYS update state.json BEFORE emitting.** |
 | `<bishx-plan-complete>` | Session finished, allow exit. |
 
-**CRITICAL:** Always update `.bishx-plan/state.json` BEFORE emitting `<bishx-plan-done>`. The Stop hook reads state.json to determine the next action.
+**CRITICAL:** Always update `{SESSION}/state.json` BEFORE emitting `<bishx-plan-done>`. The Stop hook reads state.json to determine the next action.
 
 ## Phase 0: Initialize
 
 When bishx-plan is invoked:
 
 1. **Check for existing session:**
-   - If `.bishx-plan/state.json` exists with `active: true`:
+   - If `.bishx-plan/active` exists, read the session name from it
+   - If `.bishx-plan/{session_name}/state.json` exists with `active: true`:
      - Tell the human: "An active bishx-plan session was found (phase: X, iteration: Y). Resume or restart?"
      - If resume: continue from current state
-     - If restart: delete `.bishx-plan/` and start fresh
+     - If restart: delete the session directory and `.bishx-plan/active`, then start fresh
 
-2. **Create directory structure:**
+2. **Generate session directory name:**
+   - Format: `YYYY-MM-DD_HH-MM` (e.g., `2026-02-19_14-35`)
+   - Use current date and time
+
+3. **Create directory structure:**
    ```
-   .bishx-plan/
-     state.json
-     iterations/
+   .bishx-plan/                   ← create if not exists
+     active                       ← write session dir name here (just the name, e.g. "2026-02-19_14-35")
+     {YYYY-MM-DD_HH-MM}/
+       state.json
+       iterations/
    ```
 
-3. **Add to .gitignore:**
+4. **Add to .gitignore:**
    - Read `.gitignore` (create if doesn't exist)
    - Append `.bishx-plan/` if not already present
 
-4. **Initialize state.json:**
+5. **Initialize state.json** (at `{SESSION}/state.json`):
    ```json
    {
      "active": true,
      "session_id": "bishx-plan-{timestamp}",
+     "session_dir": "{YYYY-MM-DD_HH-MM}",
      "task_description": "{user's request}",
      "iteration": 1,
      "max_iterations": 5,
@@ -75,7 +101,7 @@ When bishx-plan is invoked:
    }
    ```
 
-5. Proceed to Phase 1.
+6. Proceed to Phase 1.
 
 ## Phase 1: Interview (Gray Areas)
 
@@ -100,7 +126,7 @@ When bishx-plan is invoked:
 
 4. **Follow up** on vague answers one at a time until all gray areas are resolved.
 
-5. **Write `.bishx-plan/CONTEXT.md`** with:
+5. **Write `{SESSION}/CONTEXT.md`** with:
    ```markdown
    # Bishx-Plan Context
 
@@ -132,7 +158,7 @@ When bishx-plan is invoked:
 
 The Stop hook will inject a prompt telling you to run research. Follow its instructions:
 
-1. Read `.bishx-plan/CONTEXT.md`
+1. Read `{SESSION}/CONTEXT.md`
 2. Spawn researcher:
    ```
    Task(subagent_type="bishx:researcher", model="opus", prompt=<assembled context>)
@@ -141,7 +167,7 @@ The Stop hook will inject a prompt telling you to run research. Follow its instr
 
    **Domain Detection:** The hook automatically discovers relevant skills based on the task description. If domain-specific skills are detected (e.g., marketing, frontend design), their content will be injected into the researcher prompt to provide specialized context.
 
-3. Write output to `.bishx-plan/RESEARCH.md`
+3. Write output to `{SESSION}/RESEARCH.md`
 4. Update state.json: `phase` → `"research"`
 5. Emit `<bishx-plan-done>`
 
@@ -163,7 +189,7 @@ The Stop hook drives this loop. For each actor transition, you:
    ```
    **Fallback:** If the subagent type is not available, read the agent file from the plugin's `agents/` directory and inline its content as a prompt prefix.
 
-4. **Write output** to `.bishx-plan/iterations/NN/{output-file}.md`
+4. **Write output** to `{SESSION}/iterations/NN/{output-file}.md`
 5. **Update state.json** (phase, pipeline_actor, verdict if critic, scores if critic)
 6. **Emit `<bishx-plan-done>`**
 
@@ -189,16 +215,17 @@ The hook reads the verdict from state.json and routes:
 
 ## Phase 4: Finalize (triggered when Critic approves)
 
-1. Read the approved plan from `iterations/NN/PLAN.md`
-2. Generate filename with current datetime: `plan-YYYY-MM-DD-HHmmss.md` (e.g. `plan-2026-02-16-153045.md`)
-3. Write `.bishx-plan/{filename}` (copy of approved plan)
-4. Write plan-mode file to `~/.claude/plans/{filename}`
-4. Present to human:
+1. Read the approved plan from `{SESSION}/iterations/NN/PLAN.md`
+2. Write `{SESSION}/APPROVED_PLAN.md` (copy of approved plan)
+3. Generate datetime filename: `plan-YYYY-MM-DD-HHmmss.md`
+4. Write plan-mode file to `~/.claude/plans/{datetime-filename}`
+5. Present to human:
    - Final plan summary
    - Iteration count and score progression
    - What improved across iterations
-5. Update state.json: `phase` → `"finalize"`
-6. Emit `<bishx-plan-done>` (hook will tell you to emit `<bishx-plan-complete>`)
+   - Path to approved plan: `{SESSION}/APPROVED_PLAN.md`
+6. Update state.json: `phase` → `"finalize"`
+7. Emit `<bishx-plan-done>` (hook will tell you to emit `<bishx-plan-complete>`)
 
 ## State.json Schema
 
@@ -206,6 +233,7 @@ The hook reads the verdict from state.json and routes:
 {
   "active": true,           // false when session ends
   "session_id": "string",   // unique session identifier
+  "session_dir": "string",  // timestamped dir name (e.g. "2026-02-19_14-35")
   "task_description": "string",
   "iteration": 1,           // current iteration (1-indexed)
   "max_iterations": 5,

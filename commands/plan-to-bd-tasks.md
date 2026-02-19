@@ -187,4 +187,4 @@ Show user:
 ## Arguments (required)
 
 - `$ARGUMENTS` — path to plan file. **Must be specified.** If missing — ask the user for the path, do not proceed without it.
-- Example: `/bishx:plan-to-bd-tasks .bishx-plan/plan-2026-02-16-153045.md`
+- Example: `/bishx:plan-to-bd-tasks .bishx-plan/2026-02-16_15-30/APPROVED_PLAN.md`
