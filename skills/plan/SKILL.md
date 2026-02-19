@@ -53,6 +53,7 @@ Each planning session creates a timestamped directory inside `.bishx-plan/`:
     APPROVED_PLAN.md              ← final approved plan (Phase 4)
     iterations/
       01/ 02/ ...                 ← preserved for history
+        PLAN.md, *-REPORT.md, VERIFIED_ITEMS.md
 ```
 
 Throughout this document, `{SESSION}` refers to the session directory path (e.g., `.bishx-plan/2026-02-19_14-35`). You determine this path in Phase 0 and use it for ALL file operations.
@@ -577,19 +578,22 @@ After ALL parallel actors complete:
 
 1. Read ALL files from `{SESSION}/iterations/NN/`:
    - `PLAN.md`
-   - `SKEPTIC-REPORT.md`
-   - `TDD-REPORT.md`
-   - `COMPLETENESS-REPORT.md`
-   - `INTEGRATION-REPORT.md`
+   - `SKEPTIC-REPORT.md` (if exists)
+   - `TDD-REPORT.md` (if exists)
+   - `COMPLETENESS-REPORT.md` (if exists)
+   - `INTEGRATION-REPORT.md` (if exists)
    - `SECURITY-REPORT.md` (if exists)
    - `PERFORMANCE-REPORT.md` (if exists)
    - `{SESSION}/CONTEXT.md`
    - `{SESSION}/RESEARCH.md`
+   - If iteration > 1: `{SESSION}/iterations/{NN-1}/VERIFIED_ITEMS.md` (regression baseline)
 2. Spawn critic:
    ```
-   Task(subagent_type="bishx:critic", model="opus", prompt=<all reports + context>)
+   Task(subagent_type="bishx:critic", model="opus", prompt=<all reports + context + previous VERIFIED_ITEMS.md>)
    ```
-3. Write output to `{SESSION}/iterations/NN/CRITIC-REPORT.md`
+3. Write TWO files to `{SESSION}/iterations/NN/`:
+   - `CRITIC-REPORT.md` — evaluation report with verdict
+   - `VERIFIED_ITEMS.md` — regression baseline for the next iteration
 4. Parse verdict, score, flags from output
 5. Update state.json: `pipeline_actor` → `"critic"`, `critic_verdict`, `scores_history`, `flags`
 6. Emit `<bishx-plan-done>`

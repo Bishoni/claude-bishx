@@ -219,21 +219,26 @@ BISHX-PLAN: Parallel review complete. Now run the CRITIC evaluation.
 
 Read ALL report files from \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
 - PLAN.md
-- SKEPTIC-REPORT.md
-- TDD-REPORT.md
-- COMPLETENESS-REPORT.md
-- INTEGRATION-REPORT.md
+- SKEPTIC-REPORT.md (if exists)
+- TDD-REPORT.md (if exists)
+- COMPLETENESS-REPORT.md (if exists)
+- INTEGRATION-REPORT.md (if exists)
 - SECURITY-REPORT.md (if exists)
 - PERFORMANCE-REPORT.md (if exists)
 - \`${SESSION_DIR}/CONTEXT.md\`
 - \`${SESSION_DIR}/RESEARCH.md\`
 
+If iteration > 1: also read the PREVIOUS iteration's \`VERIFIED_ITEMS.md\` for regression baseline.
+Example: if current iteration is 02, read \`${SESSION_DIR}/iterations/01/VERIFIED_ITEMS.md\` (if exists).
+
 Spawn critic:
 \`\`\`
-Task(subagent_type="bishx:critic", model="opus", prompt=<all reports + context + research assembled>)
+Task(subagent_type="bishx:critic", model="opus", prompt=<all reports + context + research + previous VERIFIED_ITEMS.md if applicable>)
 \`\`\`
 
-Write to \`${SESSION_DIR}/iterations/${ITER_DIR}/CRITIC-REPORT.md\`
+Write TWO files to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
+- \`CRITIC-REPORT.md\` — the full evaluation report
+- \`VERIFIED_ITEMS.md\` — regression baseline for the next iteration (see critic agent instructions)
 Parse verdict (APPROVED/REVISE/REJECT), score percentage, blocking issue count.
 Update \`${SESSION_DIR}/state.json\`:
 - Set \`pipeline_actor\` to \`"critic"\`

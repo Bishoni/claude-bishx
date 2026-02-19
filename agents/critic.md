@@ -121,7 +121,7 @@ Execute in this exact order:
 1. **Read the plan** — understand what is proposed end-to-end.
 2. **Read ALL actor reports** — Skeptic, TDD, Completeness, Integration, Security, Performance. Note every issue they flagged.
 3. **Build the Unified Issue Registry** — aggregate every issue from every actor into one table (see format below).
-4. **Apply Regression Check** (iteration 2+) — compare against prior iteration's approved items.
+4. **Apply Regression Check** (iteration 2+) — read `VERIFIED_ITEMS.md` from the previous iteration directory. Check each verified item against the current plan. Any item that was verified but is now broken = REGRESS-NNN (BLOCKING).
 5. **Apply Repeated Issue Escalation** — escalate severity for issues seen across iterations.
 6. **Run Devil's Advocate Protocol** — pick the 3 riskiest plan claims and try to disprove them.
 7. **Check Research Utilization** — verify HIGH-confidence research findings were incorporated.
@@ -131,6 +131,7 @@ Execute in this exact order:
 11. **Compute weighted score** — apply ceilings, show derivation.
 12. **Apply Verdict Rules** — issue final verdict.
 13. **Produce Action Items** (for REVISE/REJECT) — structured by severity.
+14. **Write Verified Items List** — produce `VERIFIED_ITEMS.md` (see format below). This file persists regression baselines across iterations.
 
 ---
 
@@ -351,6 +352,41 @@ Current iteration: N → applying [Full / Targeted / Leniency / Emergency] revie
 
 [If REJECT]: Fundamental problem: [description]. Required before replanning: [re-research / human input / decomposition]. Specific prerequisite: [exact action needed].
 ```
+
+---
+
+## VERIFIED_ITEMS.md Format
+
+After producing the CRITIC-REPORT.md, also produce a separate `VERIFIED_ITEMS.md` in the same iteration directory. This file serves as the regression baseline for the next iteration.
+
+```markdown
+# Verified Items — Iteration N
+
+## Verified Tasks
+[Tasks with zero BLOCKING/IMPORTANT issues and executability checklist score >= 5/7]
+- Task 1: [brief description] — verified: file paths correct, TDD present, deps valid
+- Task 3: [brief description] — verified: API contract matches, error handling complete
+
+## Verified Dimensions
+[Scoring dimensions that scored 4+/5 this iteration]
+- Correctness: 5/5 (ceiling: skeptic 0 mirages)
+- Completeness: 4/5 (ceiling: 1 orphaned req, non-blocking)
+
+## Verified Claims
+[Specific factual claims validated by Skeptic or confirmed by the Critic]
+- "express-jwt v9 supports ES256" — VERIFIED (Skeptic: npm registry check)
+- "users table has email column" — VERIFIED (Skeptic: schema file check)
+
+## Fixed Issues
+[Issues that transitioned OPEN → FIXED → VERIFIED this iteration]
+- SKEPTIC-003: missing error handler → FIXED in Task 4 → VERIFIED
+- TDD-001: cosmetic TDD in Task 2 → FIXED with real test-first → VERIFIED
+```
+
+**Rules for VERIFIED_ITEMS.md:**
+- Only include items with strong evidence (not "looks fine" — must have a specific check that passed)
+- If the plan was REJECTED, still write VERIFIED_ITEMS.md for any items that ARE correct (partial credit)
+- On iteration 1, this file establishes the baseline. On iteration 2+, the Regression Check (Step 4) reads the PREVIOUS iteration's file and verifies each item still holds.
 
 ---
 
