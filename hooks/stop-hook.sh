@@ -155,7 +155,9 @@ Spawn the Critic with simplified scoring (Correctness + Executability only):
 Task(subagent_type="bishx:critic", model="opus", prompt=<PLAN.md + CONTEXT.md + "TRIVIAL mode: score only Correctness and Executability dimensions">)
 \`\`\`
 
-Write output to \`${SESSION_DIR}/iterations/${ITER_DIR}/CRITIC-REPORT.md\`
+Write TWO files to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
+- \`CRITIC-REPORT.md\` — the evaluation report
+- \`VERIFIED_ITEMS.md\` — regression baseline for the next iteration (see critic agent instructions)
 Parse verdict and score. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"critic"\`, update \`critic_verdict\`, \`critic_score_pct\`, \`scores_history\`
 Emit \`<bishx-plan-done>\`
 HEREDOC
@@ -292,14 +294,15 @@ BISHX-PLAN: Plan flagged NEEDS_SPLIT (iteration ${NEW_ITER} of ${MAX_ITER}).
 The Critic determined the plan is too large or spans multiple bounded contexts and needs decomposition.
 
 1. Read the Critic report at \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
-2. Present the NEEDS_SPLIT recommendation to the human with suggested split boundaries
-3. Wait for human response — do NOT proceed automatically
-4. After receiving human guidance on how to split, either:
+2. Also read \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
+3. Present the NEEDS_SPLIT recommendation to the human with suggested split boundaries
+4. Wait for human response — do NOT proceed automatically
+5. After receiving human guidance on how to split, either:
    a. Decompose into sub-plans (create separate sessions for each), or
    b. If human overrides, continue with the current plan as-is
-5. Update \`${SESSION_DIR}/CONTEXT.md\` with the split decision
-6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-7. Spawn the planner with updated scope and emit \`<bishx-plan-done>\`
+6. Update \`${SESSION_DIR}/CONTEXT.md\` with the split decision
+7. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
+8. Spawn the planner with updated scope. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md." Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
