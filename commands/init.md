@@ -8,77 +8,51 @@ Create project instruction files `CLAUDE.md` and `AGENTS.md` in the current work
 
 1. If `CLAUDE.md` already exists — ask the user before overwriting
 2. If `AGENTS.md` already exists — ask the user before overwriting
-3. Write both files with the **exact** content specified below (no modifications)
-4. After writing, confirm what was created
+3. Replace all `<!-- bishx:placeholder -->` comments with real project data by scanning the codebase
+4. If you can't determine a value — leave a short `TODO: ...` comment for the user
+5. After writing, confirm what was created and list any TODOs that need manual input
 
-## CLAUDE.md
+## CLAUDE.md template
+
+CLAUDE.md = **rules only**. Loaded every session → must be minimal. No catalogs, no lists of files/components, nothing that goes stale.
 
 ```markdown
 # CLAUDE.md
 
-Instructions for the AI agent (Claude Code) when working with this repository.
+Rules for the AI agent working with **{PROJECT_NAME}** — <!-- bishx:init:project_description_short -->
 
-When changing the stack, patterns, or architecture — update `AGENTS.md`. Facts only: stack, versions, patterns. No reasoning or recommendations.
+When changing stack or patterns — update `AGENTS.md`. Facts only. On task completion.
 
 ---
 
-## Project
+## Constraints
 
-<!-- bishx:init:project_description -->
+<!-- bishx:init:constraints — e.g. security requirements, compliance, network restrictions -->
+
+- OWASP Top 10 — check always
+- Secrets only in `.env`, never commit
 
 ## Stack
 
-<!-- bishx:init:stack -->
+<!-- bishx:init:stack — one line per layer, compact -->
 
-## Security
+## Environment
 
-- OWASP Top 10 — mandatory check on every change
-- Secrets only via `.env` / environment variables, never commit
-- Do not expose sensitive data in logs or API responses
-- Validate input at system boundaries (API endpoints, external sources)
+<!-- bishx:init:environment — venv, runtime version, key paths -->
 
----
+## Architecture
 
-## Task tracking with bd (beads)
-
-The project uses `bd` for local task tracking. Before starting work — check available tasks. After completion — close the task and sync.
-
-### Commands
-
-​```bash
-bd onboard              # initial setup
-bd ready                # show available tasks
-bd show <id>            # task details
-bd update <id> --status in_progress  # take task in progress
-bd close <id>           # close task
-bd sync                 # sync state
-​```
-
-### Workflow with bd (solo mode)
-
-1. `bd ready` — check available tasks
-2. `bd update <id> --status in_progress` — take a task
-3. Do the work
-4. Commit and push (see below)
-5. `bd close <id>` — close task
-6. `bd sync` — sync state
-
-**In team mode (Agent Teams):** `bd close` and `bd sync` are done by **Lead**, NOT the dev agent. Dev only commits, pushes, and notifies Lead.
-
----
+Don't break the foundation — patterns and structure in `AGENTS.md`.
+<!-- bishx:init:architecture_notes — optional 1-2 line project-specific notes (e.g. UI style) -->
 
 ## Git
 
-### Rules
-
-- All work is done on `main`
-- Conventional commits: `<type>: <subject>`
+- Branch: `main`
+- Conventional commits in English: `<type>: <subject>`
 - Types: `feat|fix|refactor|perf|docs|test|build|ci|chore|style|revert|deps|security`
-- Subject: past tense, no period, up to 200 characters
-- Co-Authored-By with model name in every commit (e.g., "Claude Opus 4.6")
-- Small atomic commits over large diffs
-
-### Commit
+- Subject: past tense, no period, max 200 chars
+- Co-Authored-By with actual model name (from system prompt) in every commit
+- Atomic commits
 
 ​```bash
 git pull --rebase origin main
@@ -86,39 +60,54 @@ git add -A
 git commit -m "$(cat <<'EOF'
 feat: added form validation
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude <MODEL> <noreply@anthropic.com>
 EOF
 )"
 git push origin main
-# If push rejected → git pull --rebase origin main && git push origin main
 ​```
 
-### Task completion (HARD GATE)
+> `<MODEL>` — substitute the real model name from system prompt (e.g. Opus 4.6, Sonnet 4.6, Haiku 4.5)
 
-A task is NOT considered complete until:
+## bd (beads)
+
+Local task tracking. `bd ready` → `bd update <id> --status in_progress` → work → commit+push → `bd close <id>` → `bd sync`.
+
+In team mode: `bd close` and `bd sync` are done by Lead.
+
+## Task completion (HARD GATE)
+
+Task is NOT complete until:
 1. `git push origin main` — succeeded
-2. `git status --porcelain` — empty (no untracked files)
-3. `bd close <id>` and `bd sync` — executed (in team mode — Lead does this)
+2. `git status --porcelain` — empty
+3. `bd close` + `bd sync` — executed
 
-Never say "ready to push" / "can push later". The agent must push by itself.
+Never say "ready to push". Agent pushes by itself.
 ```
 
-## AGENTS.md
+## AGENTS.md template
+
+AGENTS.md = **navigation map**. Loaded on demand → can be larger, but nothing that goes stale (no counts, no component lists, no route tables). Agent uses Glob/Grep to find specifics.
 
 ```markdown
 # {PROJECT_NAME}
 
-<!-- bishx:init:project_description -->
+<!-- bishx:init:project_description_short -->
 
-## Stack
+## Where things live
 
-<!-- bishx:init:stack_detailed -->
+​```
+<!-- bishx:init:directory_tree — key directories with one-line comments, not every file -->
+​```
 
-## Project Structure
+## How to add new things
 
-<!-- bishx:init:project_structure -->
+<!-- bishx:init:recipes — pipeline recipes like: "Backend endpoint: model → DAO → schema → route → migration" -->
 
-## Patterns
+## Patterns (do not break)
 
-<!-- bishx:init:patterns — filled as the project evolves -->
+<!-- bishx:init:patterns — immutable architectural rules, bullet list -->
+
+## Terms
+
+<!-- bishx:init:terms — domain glossary as markdown table, 3-7 key terms -->
 ```

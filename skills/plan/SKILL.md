@@ -61,7 +61,11 @@ When bishx-plan is invoked:
    - If `.bishx-plan/active` exists, read the session name from it
    - If `.bishx-plan/{session_name}/state.json` exists with `active: true`:
      - Tell the human: "An active bishx-plan session was found (phase: X, iteration: Y). Resume or restart?"
-     - If resume: continue from current state
+     - If resume and phase is `"interview"`:
+       - Read `{SESSION}/CONTEXT.md` (if exists, may be partial)
+       - Read `state.json` to get `interview_round`
+       - Summarize findings so far: "Here's what we've covered in rounds 0-N: [summary]. Continue with Round N+1?"
+     - If resume and phase is NOT `"interview"`: continue from current state (hook will route)
      - If restart: delete the session directory and `.bishx-plan/active`, then start fresh
 
 2. **Generate session directory name:**
@@ -92,6 +96,9 @@ When bishx-plan is invoked:
      "max_iterations": 5,
      "tdd_enabled": true,
      "phase": "interview",
+     "interview_round": 0,
+     "interview_must_resolve_total": 0,
+     "interview_must_resolve_closed": 0,
      "pipeline_actor": "",
      "critic_verdict": "",
      "scores_history": [],
@@ -103,56 +110,332 @@ When bishx-plan is invoked:
 
 6. Proceed to Phase 1.
 
-## Phase 1: Interview (Gray Areas)
+## Phase 1: Interview (Multi-Round Adaptive Discovery)
 
-**Goal:** Resolve all ambiguity before research begins.
+**Goal:** Exhaustively resolve all ambiguity before research begins through multiple structured rounds.
 
-1. **Explore the codebase** to understand context:
-   - Use `Task(subagent_type="oh-my-claudecode:explore-medium", model="opus", ...)` or direct Glob/Grep/Read
-   - Understand: project structure, tech stack, existing patterns, test setup
+The interview is NOT a single batch of questions. It is a **multi-round adaptive process** where each round builds on the previous one, and new questions emerge from the answers received.
 
-2. **Identify 3-7 gray areas** across these dimensions:
-   - Scope boundaries (what's in/out)
-   - Technology choices (which library, which approach)
-   - Data model decisions
-   - Integration points
-   - Error handling strategy
-   - Performance requirements
-   - Testing strategy
+### Step 1: Codebase Exploration & Project Profiling
 
-3. **Present gray areas as a numbered markdown list** to the human.
-   - Do NOT use AskUserQuestion for this — you need free-text answers.
-   - Use AskUserQuestion ONLY for structured binary/ternary choices (e.g., "JWT vs sessions?")
+Before asking ANY questions, deeply explore the codebase:
 
-4. **Follow up** on vague answers one at a time until all gray areas are resolved.
+1. **Explore the codebase** using `Task(subagent_type="oh-my-claudecode:explore-medium", model="opus", ...)` or direct Glob/Grep/Read
+   - **Bounds:** Scan up to 50 task-relevant files. Focus on files matching task keywords + project root structure. Do not exhaustively explore the entire codebase.
+2. **Build a Project Profile** — classify the project along these axes:
+   - Type: frontend / backend / fullstack / CLI / library / mobile
+   - Architecture: monorepo / single-repo / microservices
+   - Database: SQL / NoSQL / none / multiple
+   - Auth: JWT / sessions / OAuth / none / unknown
+   - API style: REST / GraphQL / gRPC / none
+   - Test framework: jest / pytest / go test / etc.
+   - CI/CD: present / absent
+   - Frontend framework: React / Vue / Svelte / none / etc.
+3. **Scan for codebase signals:**
+   - TODO/FIXME/HACK comments in files related to the task → note them
+   - Dead code or feature flags → note them
+   - Inconsistent patterns (two ways of doing the same thing) → note them
+   - Test coverage gaps in relevant modules → note them
+   - Recent git activity in affected areas → note them
 
-5. **Write `{SESSION}/CONTEXT.md`** with:
-   ```markdown
-   # Bishx-Plan Context
+The Project Profile determines which **dimension groups** are activated for questioning (see Step 2).
 
-   ## Task Description
-   [Original request]
+### Step 2: Dimension Selection
 
-   ## Codebase Summary
-   [Tech stack, project structure, key patterns]
+There are ~25 possible dimensions to explore, organized into groups. **Activate groups based on the Project Profile** — do NOT ask about irrelevant dimensions.
 
-   ## Decisions
-   1. [Gray area]: [Decision made]
-   2. ...
+**ALWAYS Active (Core — every project):**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 1 | Scope boundaries | What's in scope? What's explicitly OUT? |
+| 2 | Negative requirements | What should this feature NOT do? What would make it a failure? |
+| 3 | Success criteria / DoD | How do we know it's done? What metrics matter? |
+| 4 | Priority calibration | If only 60% fits, what's most important? |
+| 5 | Constraints (frozen) | What can NOT be changed? Legacy APIs, contracts, dependencies? |
+| 6 | Technology choices | Which library/approach? Why? |
+| 7 | Error handling & resilience | What happens on failure? Retry? Graceful degradation? |
+| 8 | Testing strategy | Coverage target? Unit/integration/E2E split? |
 
-   ## Scope
-   ### In Scope
-   - [Item]
-   ### Out of Scope
-   - [Item]
+**Activate if project has a DATABASE:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 9 | Data model | New tables/fields? Relationships? Indexes? |
+| 10 | Migration & backward compat | Schema changes? Data migration needed? Breaking changes? |
+| 11 | Data consistency | Eventual vs strong? Conflict resolution? |
+| 12 | Data retention / archival | TTL? Soft delete vs hard delete? Audit trail? |
 
-   ## Constraints
-   [Any technical constraints, performance requirements, etc.]
-   ```
+**Activate if project has a FRONTEND / UI:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 13 | User journey / UX | Who is the user? What's their flow? What do they see? |
+| 14 | Accessibility (a11y) | WCAG level? Screen readers? Keyboard navigation? |
+| 15 | i18n / l10n | Multiple languages? RTL? Date/currency formats? |
+| 16 | Responsive / platform compat | Mobile? Browsers? Breakpoints? |
 
-6. **Update state.json:** Keep `phase` as `"interview"`, `pipeline_actor` as `""`
+**Activate if project has an API / integrations:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 17 | Integration points | External services? Auth? Rate limits? |
+| 18 | API versioning | Versioned? Backward/forward compatibility? |
+| 19 | Multi-tenancy | Single user or multi-tenant? Data isolation? |
 
-7. **Emit `<bishx-plan-done>`**
+**Activate if project has AUTH / sensitive data:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 20 | Security model | Auth/authz approach? Input validation? OWASP? |
+| 21 | Compliance / audit | GDPR? Audit trail? Data privacy? |
+
+**Activate if project is production / deployed:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 22 | Deploy & infrastructure | How to deploy? Feature flags? Rollback? Zero-downtime? |
+| 23 | Observability | Logging? Monitoring? Alerting? Debugging? |
+| 24 | Performance requirements | Latency targets? Throughput? Resource limits? |
+
+**Activate if codebase signals found:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 25 | Tech debt nearby | TODO/FIXME in affected files — fix or leave? |
+| 26 | Pattern conflicts | Two patterns for same thing — which to follow? |
+| 27 | Stakeholders & parallel work | Who else is affected? Concurrent work in this area? |
+
+### Step 3: Priority Classification
+
+Before presenting questions, classify each identified gray area:
+
+| Priority | Meaning | Rule |
+|----------|---------|------|
+| **Must-Resolve** | Without an answer, the plan CANNOT be correct | Blocks transition to Research |
+| **Should-Resolve** | Plan quality significantly improves with an answer | Asked but can proceed with assumptions |
+| **Nice-to-Know** | Can use sensible defaults | Asked only if time permits, otherwise assumed |
+
+### Step 4: Multi-Round Interview Execution
+
+Run **up to 8 rounds** (5 structured + up to 3 dynamic follow-ups). Rounds are numbered 0-4 (structured), then N, N+1, N+2 (dynamic gap-filling). Each round has a specific focus and questioning techniques.
+
+**Round structure:**
+- Round 0: Codebase Briefing (always)
+- Rounds 1-4: Targeted questions (activated by Project Profile)
+- Rounds 5-7: Dynamic follow-up (only if Must-Resolve items remain after Round 4)
+- **Hard stop:** Max 8 rounds total. If Must-Resolve items remain, record them as explicit assumptions with a warning flag.
+
+**IMPORTANT RULES:**
+- Do NOT use AskUserQuestion for these — you need free-text answers. Use plain text numbered lists.
+- Use AskUserQuestion ONLY for structured binary/ternary choices (e.g., "JWT vs sessions?")
+- After EACH round, synthesize what you learned and show it back to the user for confirmation.
+- Track progress: show "Round N/M — X/Y Must-Resolve items closed" after each round.
+- **Escape hatches:** If the user says "just decide" or gives terse answers, offer: "I can proceed with my best assumptions for remaining items. Want me to list my assumptions for approval?"
+
+#### Round 0: Codebase Briefing (Assumption Surfacing)
+
+**Technique:** Assumption Surfacing — show YOUR understanding of the codebase and ask the user to confirm/correct.
+
+Present what you found during exploration:
+> "Before I start asking questions, let me confirm my understanding of the project:
+> 1. The project uses [X] with [Y] framework...
+> 2. Auth is handled via [Z]...
+> 3. Tests use [W] with coverage at ~N%...
+> 4. I noticed [TODO/pattern/tech debt] in [files]...
+> Is this accurate? Anything I'm missing or misunderstanding?"
+
+This saves time — the user corrects rather than explains from scratch.
+
+#### Round 1: Intent & Scope (Why, What, Who)
+
+**Techniques:** Anti-Requirements, Priority Calibration
+
+Focus on Must-Resolve items from dimensions 1-5:
+- What is the business goal / motivation?
+- What's in scope and what's explicitly OUT?
+- What should this feature NOT do? (anti-requirements)
+- What would make this feature a failure? (anti-requirements)
+- Success criteria — how do we know it's done?
+- If we can only deliver 60%, what's most important? (priority calibration)
+- What CANNOT be changed? (frozen constraints)
+
+#### Round 2: User Journey & Scenarios (Happy + Failure Paths)
+
+**Techniques:** Scenario Walking, Risk Elicitation
+
+If the project has a UI/UX component:
+- Walk through the happy path together: "User opens the page → clicks [X] → sees [Y] → ... what happens next?"
+- Walk through failure paths: "What if the token expires? What if the API is down? What if there's no data?"
+- "What worries you most about this feature?" (risk elicitation)
+
+If backend/API only:
+- Walk through the request lifecycle
+- "What happens when [edge case]?"
+- Error scenarios and expected behavior
+
+#### Round 3: Technical Decisions (How, With What)
+
+**Techniques:** Trade-off Questions, Codebase-Driven Questions
+
+Focus on dimensions activated by Project Profile:
+- Technology choices + trade-offs: "If you had to choose between [speed of development] and [full edge-case coverage], which wins?"
+- Data model decisions
+- Integration specifics
+- Security model (if applicable)
+- Codebase-Driven: "I found [pattern A] in module X and [pattern B] in module Y — which should I follow?"
+- Codebase-Driven: "There's a TODO at [file:line] about [X] — relevant to this task?"
+
+#### Round 4: Quality, Constraints & Edge Cases (What If, How Well)
+
+**Techniques:** Stakeholder Probing, Risk Elicitation
+
+Focus on remaining activated dimensions:
+- Performance targets
+- Deploy strategy
+- Observability needs
+- Concurrency / race conditions
+- "Who else will be affected by this change?" (stakeholder probing)
+- "Is anyone else working on related code right now?"
+- Any remaining Should-Resolve items
+
+#### Round N: Dynamic Follow-up (Gap Filling)
+
+If the exit checklist (Step 5) is not fully satisfied after Round 4, run additional targeted rounds:
+- Pick unresolved Must-Resolve items
+- Ask specific questions based on gaps discovered from previous answers
+- Synthesize new questions that emerged from the conversation
+
+### Step 5: Exit Checklist & Resolution Matrix
+
+Before writing CONTEXT.md, build a **Resolution Matrix** tracking every gray area discovered during the interview:
+
+```
+| # | Gray Area | Dimension | Priority | Status | Resolution |
+|---|-----------|-----------|----------|--------|------------|
+| 1 | DB schema approach | 9: Data model | Must | RESOLVED | Extend existing users table |
+| 2 | Log format | 23: Observability | Nice | ASSUMED | JSON structured logging (team standard) |
+| 3 | Rollback strategy | 22: Deploy | Should | RESOLVED | Feature flag, no migration needed |
+```
+
+**Status values:**
+- `RESOLVED` — human gave a clear answer
+- `ASSUMED` — no answer, using sensible default (recorded in Assumptions section of CONTEXT.md)
+- `OPEN` — still unresolved
+
+**Exit rules:**
+- ALL Must-Resolve items must be `RESOLVED` (not ASSUMED, not OPEN). If any remain OPEN → run another mini-round.
+- Should-Resolve items can be `ASSUMED` with explicit note.
+- Nice-to-Know items can be `ASSUMED` freely.
+
+Then verify the structural checklist:
+
+**Must pass (blocks Research):**
+- [ ] Scope is locked (in-scope AND out-of-scope defined)
+- [ ] Success criteria are concrete and testable
+- [ ] Resolution Matrix shows zero OPEN Must-Resolve items
+- [ ] No contradictions between decisions
+- [ ] Frozen constraints identified
+
+**Should pass (improves quality):**
+- [ ] User journey / main scenarios described (if applicable)
+- [ ] Failure paths identified
+- [ ] Security model defined (if applicable)
+- [ ] Performance targets set (if applicable)
+- [ ] Trade-off decisions recorded with rationale
+
+**Nice to have:**
+- [ ] Tech debt in affected area catalogued
+- [ ] Stakeholders and parallel work identified
+- [ ] Deploy strategy defined
+
+Update `state.json` with final counts: `interview_must_resolve_total` and `interview_must_resolve_closed`.
+
+### Step 6: Write Expanded CONTEXT.md
+
+Write `{SESSION}/CONTEXT.md` with this structure:
+
+```markdown
+# Bishx-Plan Context
+
+## Task Description
+[Original request, verbatim]
+
+## Project Profile
+- Type: [frontend/backend/fullstack/CLI/library]
+- Stack: [language, framework, DB, etc.]
+- Test Framework: [jest/pytest/etc.]
+- Auth: [JWT/sessions/none/etc.]
+- CI/CD: [yes/no]
+
+## Codebase Summary
+[Tech stack, project structure, key patterns discovered during exploration]
+
+## User Stories / Scenarios
+[From Scenario Walking — happy path + failure paths]
+- As a [user], I [action] so that [outcome]
+- When [condition], then [expected behavior]
+- When [error condition], then [expected recovery]
+
+## Scope
+### In Scope
+- [Item]
+### Out of Scope (Explicit)
+- [Item]
+### Anti-Requirements (Must NOT Do)
+- [Item]
+
+## Decisions
+Each decision recorded with WHY (ADR-style):
+1. **[Gray area]:** [Decision] — because [rationale]
+2. ...
+
+## Assumptions
+[Unresolved Nice-to-Know items, recorded as explicit assumptions]
+- Assuming [X] because [reason]. Override if incorrect.
+
+## Constraints (Frozen)
+[Things that CANNOT be changed]
+- [Constraint]: [why it's frozen]
+
+## Trade-offs
+[Recorded choices with reasoning]
+- Chose [A] over [B] because [priority/rationale]
+
+## Risks
+[From Risk Elicitation]
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| [risk] | H/M/L | H/M/L | [strategy] |
+
+## Stakeholders & Dependencies
+- [Who is affected]
+- [External dependencies or parallel work]
+
+## Codebase Notes
+- TODO/FIXME found: [list with file:line]
+- Pattern conflicts: [what and where]
+- Tech debt: [relevant items]
+- Test gaps: [modules with low coverage]
+
+## Success Criteria / Definition of Done
+- [ ] [Specific, testable criterion]
+- [ ] [Specific, testable criterion]
+
+## Priority Map
+[If not everything fits, what matters most → least]
+1. [Highest priority item]
+2. ...
+
+## Gray Areas Resolution Matrix
+| # | Gray Area | Dimension | Priority | Status | Resolution |
+|---|-----------|-----------|----------|--------|------------|
+| 1 | [area] | [dim #: name] | Must/Should/Nice | RESOLVED/ASSUMED | [answer or assumption] |
+
+## Interview Metadata
+- Rounds completed: [N]
+- Must-Resolve: [X/Y resolved]
+- Should-Resolve: [X/Y resolved]
+- Assumptions made: [N items — see Assumptions section above]
+```
+
+### Step 7: Update State & Signal
+
+1. **Update state.json:** Keep `phase` as `"interview"`, set `interview_round` to final round number, `pipeline_actor` as `""`
+2. **Emit `<bishx-plan-done>`**
 
 ## Phase 2: Research (triggered by hook)
 
@@ -239,6 +522,9 @@ The hook reads the verdict from state.json and routes:
   "max_iterations": 5,
   "tdd_enabled": true,
   "phase": "interview|research|pipeline|finalize|complete|max_iterations",
+  "interview_round": 0,     // current interview round (0-indexed: 0=briefing, 1=scope, 2=journey, 3=technical, 4=quality)
+  "interview_must_resolve_total": 0,  // total Must-Resolve gray areas identified
+  "interview_must_resolve_closed": 0, // Must-Resolve gray areas actually resolved
   "pipeline_actor": "planner|skeptic|tdd-reviewer|critic|\"\"",
   "critic_verdict": "APPROVED|REVISE|REJECT|\"\"",
   "scores_history": [       // score from each iteration
@@ -271,7 +557,7 @@ The hook reads the verdict from state.json and routes:
 ```
 
 Status templates:
-- `[bishx-plan] Interview done | N gray areas resolved, context saved`
+- `[bishx-plan] Interview done | N rounds, X/Y must-resolve closed, Z assumptions recorded`
 - `[bishx-plan] Research done | N sources checked, M high-confidence findings`
 - `[bishx-plan] Iteration K — Planner done | N tasks, M TDD cycles`
 - `[bishx-plan] Iteration K — Skeptic done | N verified, M mirages found`
