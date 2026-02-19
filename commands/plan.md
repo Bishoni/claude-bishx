@@ -1,5 +1,5 @@
 ---
-description: Start automated iterative planning with 5-actor verification pipeline (Researcher → Planner → Skeptic → TDD Reviewer → Critic)
+description: Start automated iterative planning with 10-actor parallel verification pipeline
 ---
 
 Invoke the `bishx:plan` skill and follow it exactly.

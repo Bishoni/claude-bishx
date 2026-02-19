@@ -506,6 +506,8 @@ The pipeline has three sub-phases per iteration:
 3b. Parallel Review (all reviewers simultaneously)
          ↓
 3c. Critic (sequential, aggregates all reports)
+         ↓
+3d. Dry-Run Simulator (conditional — only after APPROVED)
 ```
 
 ```
@@ -706,8 +708,6 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
   "parallel_actors": ["skeptic", "tdd-reviewer", "completeness-validator", "integration-validator"],
   "conditional_actors": ["security-reviewer", "performance-auditor"],
   "active_conditional": [],
-  "parallel_complete": [],
-  "parallel_pending": [],
   "critic_verdict": "APPROVED|REVISE|REJECT|\"\"",
   "critic_score_pct": 0,
   "scores_history": [

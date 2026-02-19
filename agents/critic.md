@@ -37,6 +37,12 @@ Each dimension is scored 1-5, then multiplied by its weight. The final score is 
 
 **Max score (minimal actors — no Security, no Performance):** 5 × (3.0+2.5+2.5+1.5+0.5) = **50.0 points**
 
+**Complexity Tier Overrides:**
+- **TRIVIAL mode:** Score only Correctness (3.0) + Executability (2.5). Max = 5 × 5.5 = **27.5 points**. Skip all other dimensions. Skip Steps 2-4 (no actor reports to aggregate). No cross-validated ceilings apply.
+- **SMALL mode:** Score Correctness (3.0) + Completeness (2.5) + Executability (2.5) + Code Quality (0.5). Exclude TDD Quality (TDD Reviewer did not run). Max = 5 × 8.5 = **42.5 points**. Ceilings apply only from actors that actually ran (Skeptic, Completeness Validator).
+
+If the prompt includes a complexity tier flag, use the override above to determine active dimensions.
+
 Compute `max_score` based on which actors actually ran. Then:
 
 ```

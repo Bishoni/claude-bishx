@@ -48,6 +48,7 @@ if [[ -n "$PLAN_STATE" && -f "$PLAN_STATE" ]]; then
     VERDICT=$(jq -r '.critic_verdict // ""' "$PLAN_STATE")
     FLAGS=$(jq -r '.flags // [] | join(",")' "$PLAN_STATE")
     COMPLEXITY=$(jq -r '.complexity_tier // "medium"' "$PLAN_STATE")
+    if [[ -z "$COMPLEXITY" ]]; then COMPLEXITY="medium"; fi
 
     # Safety: max iterations reached
     if [[ "$ITERATION" -gt "$MAX_ITER" ]]; then
@@ -291,11 +292,11 @@ The Critic flagged NEEDS_RE_RESEARCH. Run targeted research first.
    Task(subagent_type="bishx:researcher", model="opus", prompt=<targeted research questions from critic report>)
    \`\`\`
 3. Append the new findings to \`${SESSION_DIR}/RESEARCH.md\` under a "## Supplemental Research (Iteration ${NEW_ITER})" heading.
-4. Then read ALL feedback:
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/INTEGRATION-REPORT.md\`
+4. Then read ALL available feedback (skip files that don't exist — not all actors run in every complexity tier):
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/INTEGRATION-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SECURITY-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PERFORMANCE-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
@@ -316,12 +317,12 @@ HEREDOC
                 read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
 
-1. Read ALL feedback from the previous iteration:
+1. Read ALL available feedback from the previous iteration (skip files that don't exist — not all actors run in every complexity tier):
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PLAN.md\` (previous plan for reference)
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/INTEGRATION-REPORT.md\`
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/INTEGRATION-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SECURITY-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PERFORMANCE-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
@@ -330,9 +331,9 @@ BISHX-PLAN: Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
    - \`${SESSION_DIR}/RESEARCH.md\`
 2. Spawn the planner agent:
    \`\`\`
-   Task(subagent_type="bishx:planner", model="opus", prompt=<all feedback + context + research>)
+   Task(subagent_type="bishx:planner", model="opus", prompt=<all available feedback + context + research>)
    \`\`\`
-   Tell the planner: "This is iteration ${NEW_ITER}. Address EVERY issue from the Skeptic, TDD, Completeness, Integration, and Critic reports. Include a Revision Notes section at the top listing each issue and how it was addressed. Do not silently ignore feedback."
+   Tell the planner: "This is iteration ${NEW_ITER}. Address EVERY issue from the available review reports and the Critic report. Include a Revision Notes section at the top listing each issue and how it was addressed. Do not silently ignore feedback."
 3. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 4. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
 5. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
@@ -374,16 +375,16 @@ Fundamental issues require re-research.
    Task(subagent_type="bishx:researcher", model="opus", prompt=<rejection reasons + targeted research questions>)
    \`\`\`
 3. Append findings to \`${SESSION_DIR}/RESEARCH.md\` under "## Re-Research (Iteration ${NEW_ITER})"
-4. Read ALL prior feedback and updated research:
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\`
-   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/INTEGRATION-REPORT.md\`
+4. Read ALL available prior feedback and updated research (skip files that don't exist — not all actors run in every complexity tier):
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/INTEGRATION-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SECURITY-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PERFORMANCE-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/DRYRUN-REPORT.md\` (if exists)
-5. Spawn the planner agent with all context
+5. Spawn the planner agent with all available context
 6. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 7. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
 8. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
@@ -402,7 +403,36 @@ HEREDOC
 
         "dry-run:")
           ITER_DIR=$(printf "%02d" "$ITERATION")
-          read -r -d '' PROMPT << HEREDOC || true
+          if [[ "$VERDICT" == "REVISE" ]]; then
+            # Dry-run FAIL path: route to planner for revision (not re-run dry-run)
+            NEW_ITER=$((ITERATION + 1))
+            jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\" | .phase = \"pipeline\"" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
+            OLD_ITER_DIR=$(printf "%02d" "$ITERATION")
+            NEW_ITER_DIR=$(printf "%02d" "$NEW_ITER")
+            read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Dry-run FAILED. Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
+
+1. Read available feedback from \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/\`:
+   - \`PLAN.md\` (previous plan)
+   - \`CRITIC-REPORT.md\`
+   - \`DRYRUN-REPORT.md\`
+   - \`SKEPTIC-REPORT.md\` (if exists)
+   - \`TDD-REPORT.md\` (if exists)
+   - \`COMPLETENESS-REPORT.md\` (if exists)
+   - \`INTEGRATION-REPORT.md\` (if exists)
+   - \`SECURITY-REPORT.md\` (if exists)
+   - \`PERFORMANCE-REPORT.md\` (if exists)
+   Also read \`${SESSION_DIR}/CONTEXT.md\` and \`${SESSION_DIR}/RESEARCH.md\`
+2. Focus on the DRYRUN-REPORT issues — these are executability problems the simulator found.
+3. Spawn the planner agent with all available feedback.
+4. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
+5. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
+6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
+7. Emit \`<bishx-plan-done>\`
+HEREDOC
+          else
+            # Normal dry-run: spawn simulator
+            read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: You are in DRY-RUN phase. Spawn the dry-run simulator.
 
 Read ONLY \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\`
@@ -419,6 +449,7 @@ Parse verdict: PASS, FAIL, or WARN
 If PASS or WARN: Update \`${SESSION_DIR}/state.json\` phase to \`"finalize"\`, emit \`<bishx-plan-done>\`
 If FAIL: Set \`critic_verdict\` to \`"REVISE"\`, add DRYRUN issues to feedback, emit \`<bishx-plan-done>\`
 HEREDOC
+          fi
           ;;
 
         "finalize:")

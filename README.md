@@ -20,7 +20,7 @@ ln -s ~/.claude/plugins/bishx ~/.claude/plugins/marketplaces/local/plugins/bishx
 
 # Register in cache
 mkdir -p ~/.claude/plugins/cache/local/bishx
-ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/1.1.0
+ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/2.0.0
 ```
 
 Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
@@ -50,7 +50,7 @@ Run `init` when starting a project from scratch. Run `init-sync` once there's co
 | Command | Description |
 |---------|-------------|
 | `/bishx:prompt <idea>` | Turn a raw idea into a structured planning prompt |
-| `/bishx:plan <prompt>` | Run 5-actor verification pipeline (Researcher → Planner → Skeptic → TDD Reviewer → Critic) to produce a bulletproof implementation plan |
+| `/bishx:plan <prompt>` | Run 10-actor verification pipeline with parallel review topology to produce a bulletproof implementation plan |
 | `/bishx:bd` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run full` | Full cycle: development + code review + QA testing |
@@ -88,13 +88,19 @@ The plugin registers a **Stop hook** that keeps planning and execution sessions 
 
 The plugin uses [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) — independent Claude Code sessions that communicate peer-to-peer via `SendMessage` and coordinate through a shared `TaskList`.
 
-### Planning pipeline (5 actors)
+### Planning pipeline (10 actors)
 
 ```
-Interview → Research → [Planner → Skeptic → TDD Reviewer → Critic] ×N
+                                  ┌─ Skeptic (opus)
+                                  ├─ TDD Reviewer (sonnet)
+Interview → Research → Planner →  ├─ Completeness (sonnet)  → Critic → Dry-Run? ×N
+                                  ├─ Integration (sonnet)
+                                  ├─ Security* (sonnet)
+                                  └─ Performance* (sonnet)
+                                    * = conditional
 ```
 
-Iterates up to 5 times until the Critic scores ≥20/25 (APPROVED). Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
+Iterates up to 5 times until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run Simulator passes. Complexity gate adapts the pipeline: TRIVIAL skips review, SMALL runs lite review, MEDIUM+ runs full parallel review. Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
 
 ### Execution pipeline
 
@@ -129,11 +135,16 @@ bishx/
 ├── .claude-plugin/plugin.json    # Plugin manifest
 ├── README.md
 ├── agents/                       # Agent role definitions (planning pipeline)
-│   ├── critic.md                 # Final quality gate
-│   ├── planner.md                # Implementation planner
-│   ├── researcher.md             # Deep codebase/API research
-│   ├── skeptic.md                # Mirage detector — verifies claims against reality
-│   └── tdd-reviewer.md           # TDD compliance checker
+│   ├── completeness-validator.md # Requirements traceability checker
+│   ├── critic.md                 # Final quality gate with weighted scoring
+│   ├── dry-run-simulator.md      # Simulates plan execution with zero context
+│   ├── integration-validator.md  # Inter-task compatibility checker
+│   ├── performance-auditor.md    # Performance analysis (conditional)
+│   ├── planner.md                # Implementation planner with complexity budget
+│   ├── researcher.md             # Deep codebase/API research with RQ protocol
+│   ├── security-reviewer.md      # Security analysis (conditional)
+│   ├── skeptic.md                # Mirage detector — presence + absence mirages
+│   └── tdd-reviewer.md           # TDD compliance with quantitative metrics
 ├── commands/                     # Slash command definitions
 │   ├── cancel.md
 │   ├── idea.md
