@@ -340,13 +340,14 @@ The Critic flagged NEEDS_RE_RESEARCH. Run targeted research first.
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PERFORMANCE-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/DRYRUN-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
    - Updated \`${SESSION_DIR}/RESEARCH.md\`
    - \`${SESSION_DIR}/CONTEXT.md\`
 5. Spawn the planner agent:
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<all feedback + research + context>)
    \`\`\`
-   Tell the planner: "Address EVERY issue from prior reports. Include a Revision Notes section."
+   Tell the planner: "Address EVERY issue from prior reports. Do NOT break items listed in VERIFIED_ITEMS.md. Include a Revision Notes section."
 6. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 7. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
 8. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
@@ -366,13 +367,14 @@ BISHX-PLAN: Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PERFORMANCE-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/DRYRUN-REPORT.md\` (if exists)
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
    - \`${SESSION_DIR}/CONTEXT.md\`
    - \`${SESSION_DIR}/RESEARCH.md\`
 2. Spawn the planner agent:
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<all available feedback + context + research>)
    \`\`\`
-   Tell the planner: "This is iteration ${NEW_ITER}. Address EVERY issue from the available review reports and the Critic report. Include a Revision Notes section at the top listing each issue and how it was addressed. Do not silently ignore feedback."
+   Tell the planner: "This is iteration ${NEW_ITER}. Address EVERY issue from the available review reports and the Critic report. Do NOT break items listed in VERIFIED_ITEMS.md. Include a Revision Notes section at the top listing each issue and how it was addressed. Do not silently ignore feedback."
 3. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 4. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
 5. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
@@ -424,7 +426,8 @@ Fundamental issues require re-research.
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PERFORMANCE-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/DRYRUN-REPORT.md\` (if exists)
-5. Spawn the planner agent with all available context
+   - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
+5. Spawn the planner agent with all available context. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md."
 6. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 7. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
 8. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
@@ -462,8 +465,9 @@ BISHX-PLAN: Dry-run FAILED. Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_
    - \`INTEGRATION-REPORT.md\` (if exists)
    - \`SECURITY-REPORT.md\` (if exists)
    - \`PERFORMANCE-REPORT.md\` (if exists)
+   - \`VERIFIED_ITEMS.md\` (if exists)
    Also read \`${SESSION_DIR}/CONTEXT.md\` and \`${SESSION_DIR}/RESEARCH.md\`
-2. Focus on the DRYRUN-REPORT issues — these are executability problems the simulator found.
+2. Focus on the DRYRUN-REPORT issues — these are executability problems the simulator found. Do NOT break items listed in VERIFIED_ITEMS.md.
 3. Spawn the planner agent with all available feedback.
 4. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 5. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
