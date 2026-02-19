@@ -1,6 +1,6 @@
 ---
 name: prompt
-description: "Generates a structured planning prompt for bishx-plan. Analyzes the user's idea, discovers relevant skills, and builds a detailed prompt — first in Russian for review, then translates to English for execution."
+description: "Generates a structured planning prompt for bishx-plan. Analyzes the user's idea, discovers relevant skills, and builds a detailed prompt for execution."
 ---
 
 # Bishx-Prompt: Planning Prompt Builder
@@ -30,59 +30,51 @@ Also manually scan `~/.claude/skills/` directory names to catch skills the keywo
 
 For each discovered skill, read the first 10 lines of its SKILL.md to understand what it offers. This helps you write a prompt that leverages those skills properly.
 
-### Step 4: Generate prompt in Russian
+### Step 4: Generate structured prompt
 
-Write a structured prompt in Russian using this format:
+Write a structured prompt in English using this format:
 
 ```markdown
-## Задача
-[Чёткое описание что нужно сделать — 2-3 предложения]
+## Task
+[Clear description of what needs to be done — 2-3 sentences]
 
-## Контекст
-[Релевантный контекст: стек, ограничения, существующая архитектура]
+## Context
+[Relevant context: stack, constraints, existing architecture]
 
-## Требования
-1. [Конкретное требование]
-2. [Конкретное требование]
+## Requirements
+1. [Specific requirement]
+2. [Specific requirement]
 ...
 
-## Ожидаемый результат
-[Что должно получиться в итоге]
+## Expected Outcome
+[What the end result should be]
 
-## Скиллы
+## Skills
 +skill:name1 +skill:name2 +skill:name3
 ```
 
-Rules for the Russian prompt:
-- Be specific, not vague. "Сделать лендинг" is bad. "Сделать лендинг для SaaS-продукта управления задачами с hero-секцией, блоком фич, pricing-таблицей и CTA" is good.
+Rules for the prompt:
+- Be specific, not vague. "Build a landing page" is bad. "Build a landing page for a SaaS task management product with a hero section, features block, pricing table, and CTA" is good.
 - Include implicit requirements the user probably forgot to mention
 - Add `+skill:name` tags for all relevant skills
 - Keep it under 300 words — dense and actionable
 
 ### Step 5: Present to user
 
-Show the Russian prompt to the user. Ask: "Всё верно? Поправить что-то?"
+Show the prompt to the user. Ask: "Looks good? Want to change anything?"
 
 Wait for their response. If they want changes — apply them and show again.
 
-### Step 6: Translate to English
+### Step 6: Output final prompt
 
-Once approved, translate the prompt to English. The translation must:
-- Preserve all technical terms exactly (React, JWT, API, etc.)
-- Keep `+skill:name` tags unchanged
-- Be natural English, not word-for-word translation
-- Maintain the same structure and level of detail
-
-### Step 7: Output final prompt
-
-Present the English prompt in a copyable code block:
+Present the prompt in a copyable code block:
 
 ```
 Ready to use:
 ```
 
 ```
-/bishx:plan <english prompt here>
+/bishx:plan <prompt here>
 ```
 
 ## Critical Rules
@@ -91,4 +83,4 @@ Ready to use:
 2. **Be generous with skills.** Better to include a slightly-relevant skill than to miss one that's needed.
 3. **Dense over verbose.** Every sentence should add information. No filler.
 4. **The prompt is for bishx-plan, not for direct execution.** It should describe WHAT to plan, not HOW to implement.
-5. **Always show Russian first.** Never skip to English without user approval.
+5. **Always show the prompt for review before finalizing.** Never skip user approval.

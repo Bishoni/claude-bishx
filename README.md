@@ -20,7 +20,7 @@ ln -s ~/.claude/plugins/bishx ~/.claude/plugins/marketplaces/local/plugins/bishx
 
 # Register in cache
 mkdir -p ~/.claude/plugins/cache/local/bishx
-ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/1.0.0
+ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/1.1.0
 ```
 
 Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
@@ -94,12 +94,12 @@ The plugin uses [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/age
 Interview → Research → [Planner → Skeptic → TDD Reviewer → Critic] ×N
 ```
 
-Iterates up to 5 times until the Critic scores ≥20/25 (APPROVED).
+Iterates up to 5 times until the Critic scores ≥20/25 (APPROVED). Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
 
 ### Execution pipeline
 
 ```
-Lead → Dev (opus) → 3 Reviewers (sonnet, parallel) → Validate (haiku) → QA (opus)
+Lead → Dev (opus) → 3 Reviewers (sonnet, parallel) → Validate (sonnet) → QA (opus)
 ```
 
 Lead assigns bd tasks from the board and orchestrates the full cycle:
@@ -109,7 +109,7 @@ Lead assigns bd tasks from the board and orchestrates the full cycle:
    - **Bug Reviewer** — correctness, logic errors, syntax, tests
    - **Security Reviewer** — OWASP vulnerabilities, injection, XSS, SSRF, secrets
    - **Compliance Reviewer** — CLAUDE.md/AGENTS.md project rules
-3. **Per-issue validation** (haiku) — each CRITICAL/MAJOR finding is independently confirmed or rejected by a haiku subagent to suppress false positives
+3. **Per-issue validation** (sonnet) — each CRITICAL/MAJOR finding is independently confirmed or rejected by a sonnet subagent to suppress false positives
 4. **QA** (opus) runs acceptance testing
 
 Each reviewer has formal severity definitions (CRITICAL/MAJOR/MINOR/INFO), HIGH SIGNAL filters ("what NOT to flag"), scope discipline (diff-only), and self-validation. Pass/fail is deterministic: zero CRITICAL + zero MAJOR + automated checks pass.
@@ -155,7 +155,19 @@ bishx/
     ├── plan/SKILL.md
     ├── prompt/SKILL.md
     ├── run/SKILL.md
-    └── test/SKILL.md
+    └── test/
+        ├── SKILL.md
+        └── types/                # Modular test type definitions
+            ├── accessibility.md
+            ├── backend-api.md
+            ├── backend-unit.md
+            ├── data-integrity.md
+            ├── e2e-acceptance.md
+            ├── error-handling.md
+            ├── performance.md
+            ├── security.md
+            ├── ux-ui-visual.md
+            └── web-bug-hunting.md
 ```
 
 ## Credits

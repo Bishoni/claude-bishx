@@ -93,22 +93,22 @@ Identify domain-specific terms from model names, comments, README.
 
 Read `CLAUDE.md`. Replace placeholder sections AND add new sections if they don't exist.
 
-### Section: Проект
+### Section: Project
 Replace `<!-- bishx:init:project_description -->` with 1-2 sentence description.
 Source: README.md, package.json description, pyproject.toml metadata.
 
-### Section: Стек
+### Section: Stack
 Replace `<!-- bishx:init:stack -->` with compact bullet list:
 ```markdown
 - Backend: Python 3.13, FastAPI, SQLAlchemy async, Alembic, Pydantic v2
-- Frontend: React 19, TypeScript, Vite, Tabler (конвертация HTML→React)
-- БД: PostgreSQL, Redis
+- Frontend: React 19, TypeScript, Vite, Tabler (HTML→React conversion)
+- DB: PostgreSQL, Redis
 - Auth: LDAP/AD → JWE tokens
 ```
 Only include categories that actually exist. Be specific with versions.
 
-### Section: Окружение (ADD if missing)
-Insert AFTER Стек, BEFORE Безопасность. Content:
+### Section: Environment (ADD if missing)
+Insert AFTER Stack, BEFORE Security. Content:
 - Virtual environment path and activation command
 - Key directory paths with descriptions
 - Links to important documentation files found in the project
@@ -116,31 +116,31 @@ Insert AFTER Стек, BEFORE Безопасность. Content:
 
 Example:
 ```markdown
-## Окружение
+## Environment
 
-- venv: `.venv` в корне проекта, активация через `python3.13`
-- Полный контекст кодовой базы: `docs/CODEBASE_CONTEXT.md`
-- Детали архитектуры: `docs/plans/v1/implementation-plan.md`
+- venv: `.venv` in project root, activate via `python3.13`
+- Full codebase context: `docs/CODEBASE_CONTEXT.md`
+- Architecture details: `docs/plans/v1/implementation-plan.md`
 ```
 
-### Section: Архитектура (ADD if missing)
-Insert AFTER Окружение, BEFORE Безопасность. Brief (2-3 sentences):
+### Section: Architecture (ADD if missing)
+Insert AFTER Environment, BEFORE Security. Brief (2-3 sentences):
 - Where the source code lives
 - Core architectural pattern
 - What NOT to break (the foundational conventions)
 
 Example:
 ```markdown
-## Backend архитектура (`backend/`)
+## Backend Architecture (`backend/`)
 
-Базовая архитектура backend в `backend/app/`. Новые модули строятся по этим паттернам. Архитектуру можно развивать и улучшать, если изменение обосновано — но фундамент (DAO, DTO, ResponseEnvelope, async everywhere, session injection) не ломать
+Base backend architecture in `backend/app/`. New modules follow these patterns. Architecture can evolve if justified — but don't break the foundation (DAO, DTO, ResponseEnvelope, async everywhere, session injection)
 ```
 
-### Section: Безопасность
+### Section: Security
 If current content is only generic OWASP rules, enhance with project-specific security concerns detected from the codebase (encryption, compliance requirements, network restrictions, etc.).
 
 ### Section: Frontend (ADD if frontend exists)
-Insert AFTER Безопасность. Brief notes:
+Insert AFTER Security. Brief notes:
 - UI framework and styling approach
 - Key constraints
 
@@ -148,8 +148,8 @@ Example:
 ```markdown
 ## Frontend
 
-- Tabler HTML → конвертация в React-компоненты, без Tailwind
-- Избегай generic AI-эстетики. Следуй стилю фреймворка.
+- Tabler HTML → HTML→React conversion, no Tailwind
+- Avoid generic AI aesthetics. Follow the framework's style.
 ```
 
 ## Step 4: Fill AGENTS.md
@@ -160,7 +160,7 @@ This is the DEEP documentation file. It must be thorough enough that a new agent
 Replace `{PROJECT_NAME}` with actual project name.
 Replace `<!-- bishx:init:project_description -->` with 2-3 sentence description.
 
-### Section: Стек
+### Section: Stack
 Replace `<!-- bishx:init:stack_detailed -->`.
 Create subsections per layer with `**bold labels**` and exact versions:
 
@@ -172,13 +172,13 @@ Create subsections per layer with `**bold labels**` and exact versions:
 - **Migrations:** Alembic
 - **Validation:** Pydantic v2
 - **Cache/Messaging:** Redis 7+
-- **БД:** PostgreSQL 16+
+- **DB:** PostgreSQL 16+
 
 ### Frontend
 - **Runtime:** React 19
 - **Language:** TypeScript 5
 - **Bundler:** Vite 6
-- **UI Framework:** Tabler (HTML→React conversion, без Tailwind)
+- **UI Framework:** Tabler (HTML→React conversion, no Tailwind)
 - **Router:** React Router v7
 - **State:** Zustand
 - **Data Fetching:** TanStack React Query v5
@@ -191,32 +191,32 @@ Create subsections per layer with `**bold labels**` and exact versions:
 
 Include ALL layers: Backend, Frontend, ML/AI, Auth, Monitoring, Infrastructure — whatever exists.
 
-### Section: Архитектура
+### Section: Architecture
 Replace `<!-- bishx:init:project_structure -->` with FULL architectural breakdown.
 This is NOT just a directory tree. Create subsections for EACH architectural layer found:
 
-#### Backend архитектура (if backend exists)
+#### Backend Architecture (if backend exists)
 Discover the actual layers the project uses. Common ones: Models, DAO/Repository, Schemas/DTOs, Routes/Controllers, Services, Auth, Response Format, Config, Middleware, Workers, Scheduler — but only document what's actually there. Skip what doesn't exist. Add layers not listed here if the project has them.
 
-For each layer found, include: **Расположение**, **Кол-во** (if countable), key names/examples.
+For each layer found, include: **Location**, **Count** (if countable), key names/examples.
 
 Example for one subsection:
 ```markdown
-### Модели
-- **Расположение:** `backend/app/main_dao/models.py`
-- **Кол-во:** ~20 моделей в одном файле
-- **Основные:** User, Role, UserRole, Conference, Transcript, AudioFile, Tag, Notification, AuditLog
+### Models
+- **Location:** `backend/app/main_dao/models.py`
+- **Count:** ~20 models in one file
+- **Key models:** User, Role, UserRole, Conference, Transcript, AudioFile, Tag, Notification, AuditLog
 
 ### DAO Layer
-- **BaseDAO[T]:** `backend/app/main_dao/base.py` — Generic CRUD с cursor pagination
-- **DAO files:** `backend/app/dao/` — 24 файла, наследуют BaseDAO
-- **Примеры:** UserDAO, ConferenceDAO, TranscriptDAO, TagDAO, NotificationDAO
+- **BaseDAO[T]:** `backend/app/main_dao/base.py` — Generic CRUD with cursor pagination
+- **DAO files:** `backend/app/dao/` — 24 files, inherit BaseDAO
+- **Examples:** UserDAO, ConferenceDAO, TranscriptDAO, TagDAO, NotificationDAO
 ```
 
-#### Frontend архитектура (if frontend exists)
+#### Frontend Architecture (if frontend exists)
 Discover the actual frontend structure. Common layers: Features/Pages, UI Components, Layout, State Management, Hooks/Composables, Routes — but adapt to what's actually there (Vue has composables, not hooks; Angular has modules; etc.).
 
-For each layer found, include: **Расположение**, **Кол-во**, lists.
+For each layer found, include: **Location**, **Count**, lists.
 
 Routes — prefer table format:
 ```markdown
@@ -226,41 +226,41 @@ Routes — prefer table format:
 | `/login` | LoginPage | auth |
 ```
 
-### Section: Документация
+### Section: Documentation
 Replace with table of ALL found documentation files:
 ```markdown
-| Документ | Описание |
-|----------|----------|
-| [README.md](README.md) | Навигационный хаб |
-| [docs/architecture.md](docs/architecture.md) | Архитектура сервисов |
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | Navigation hub |
+| [docs/architecture.md](docs/architecture.md) | Services architecture |
 ```
 
-### Section: Доменные термины (ADD if identifiable)
+### Section: Domain Terms (ADD if identifiable)
 Extract domain-specific terms from models, README, comments:
 ```markdown
-| Термин | Значение |
-|--------|----------|
-| Конференция | Видеозвонок в TrueConf (2-60 мин) |
+| Term | Meaning |
+|------|---------|
+| Conference | TrueConf video call (2-60 min) |
 ```
 If no clear domain terms found — omit this section entirely.
 
-### Section: Паттерны
+### Section: Patterns
 Replace `<!-- bishx:init:patterns -->`.
 Per-layer list of ACTUAL patterns found in code (not recommendations):
 
 ```markdown
 ### Backend
-- DAO pattern (не Repository, не Active Record)
+- DAO pattern (not Repository, not Active Record)
 - Async everywhere (asyncpg, aiohttp, aioredis)
-- Pydantic v2 schemas для валидации
-- Cursor-based pagination (не offset)
+- Pydantic v2 schemas for validation
+- Cursor-based pagination (not offset)
 - Soft delete (deleted_at, deleted_by)
-- ResponseEnvelope для всех API ответов
+- ResponseEnvelope for all API responses
 
 ### Frontend
-- Feature-based структура (не по типам файлов)
-- Zustand для state management
-- React Query для server state
+- Feature-based structure (not by file type)
+- Zustand for state management
+- React Query for server state
 ```
 
 Be specific — mention what pattern IS used and what it's NOT (like the voicer example).
@@ -283,6 +283,6 @@ Be specific — mention what pattern IS used and what it's NOT (like the voicer 
 3. **Preserve user edits.** Section has custom content (no marker) → don't overwrite, only append clearly missing info.
 4. **Be exhaustive in AGENTS.md.** Every architectural layer, every route, every component. A new agent should understand the project from this file alone.
 5. **Be concise in CLAUDE.md.** Bullets, short paragraphs. No deep dives — that's what AGENTS.md is for.
-6. **Russian text.** Both files use Russian. Technical terms (FastAPI, Zustand, JWT) stay in English.
-7. **Exact counts and paths.** Don't write "several models" — write "~20 моделей в `app/models.py`". Don't write "some routes" — write "20+ файлов в `api/v1/routes/`".
+6. **English text.** Both files use English. Technical terms (FastAPI, Zustand, JWT) stay as-is.
+7. **Exact counts and paths.** Don't write "several models" — write "~20 models in `app/models.py`". Don't write "some routes" — write "20+ files in `api/v1/routes/`".
 8. **List real names.** Don't write "key models" — list them: User, Role, Conference, etc.

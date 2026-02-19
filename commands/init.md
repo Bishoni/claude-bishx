@@ -16,91 +16,91 @@ Create project instruction files `CLAUDE.md` and `AGENTS.md` in the current work
 ```markdown
 # CLAUDE.md
 
-Инструкции для AI-агента (Claude Code) при работе с этим репозиторием.
+Instructions for the AI agent (Claude Code) when working with this repository.
 
-При изменении стека, паттернов или архитектуры — актуализируй `AGENTS.md`. Только факты: стек, версии, паттерны. Без рассуждений и рекомендаций.
+When changing the stack, patterns, or architecture — update `AGENTS.md`. Facts only: stack, versions, patterns. No reasoning or recommendations.
 
 ---
 
-## Проект
+## Project
 
 <!-- bishx:init:project_description -->
 
-## Стек
+## Stack
 
 <!-- bishx:init:stack -->
 
-## Безопасность
+## Security
 
-- OWASP Top 10 — обязательная проверка при каждом изменении
-- Секреты только через `.env` / переменные окружения, никогда не коммитить
-- Не выводить чувствительные данные в логи и ответы API
-- Валидация входных данных на границах системы (API endpoints, внешние источники)
+- OWASP Top 10 — mandatory check on every change
+- Secrets only via `.env` / environment variables, never commit
+- Do not expose sensitive data in logs or API responses
+- Validate input at system boundaries (API endpoints, external sources)
 
 ---
 
-## Трекинг задач через bd (beads)
+## Task tracking with bd (beads)
 
-Проект использует `bd` для локального трекинга задач/изменений. Перед началом работы — получи задачи. После завершения — закрой задачу и синхронизируй.
+The project uses `bd` for local task tracking. Before starting work — check available tasks. After completion — close the task and sync.
 
-### Команды
+### Commands
 
 ​```bash
-bd onboard              # первичная инициализация
-bd ready                # показать доступные задачи
-bd show <id>            # детали задачи
-bd update <id> --status in_progress  # взять в работу
-bd close <id>           # закрыть задачу
-bd sync                 # синхронизировать состояние
+bd onboard              # initial setup
+bd ready                # show available tasks
+bd show <id>            # task details
+bd update <id> --status in_progress  # take task in progress
+bd close <id>           # close task
+bd sync                 # sync state
 ​```
 
-### Workflow с bd (solo-режим)
+### Workflow with bd (solo mode)
 
-1. `bd ready` — посмотреть доступные задачи
-2. `bd update <id> --status in_progress` — взять задачу
-3. Выполнить работу
-4. Закоммитить и запушить (см. ниже)
-5. `bd close <id>` — закрыть задачу
-6. `bd sync` — синхронизировать
+1. `bd ready` — check available tasks
+2. `bd update <id> --status in_progress` — take a task
+3. Do the work
+4. Commit and push (see below)
+5. `bd close <id>` — close task
+6. `bd sync` — sync state
 
-**В team-режиме (Agent Teams):** `bd close` и `bd sync` выполняет **Lead**, НЕ dev-агент. Dev только коммитит, пушит и уведомляет Lead.
+**In team mode (Agent Teams):** `bd close` and `bd sync` are done by **Lead**, NOT the dev agent. Dev only commits, pushes, and notifies Lead.
 
 ---
 
 ## Git
 
-### Правила
+### Rules
 
-- Вся работа ведётся в `main`
-- Conventional commits на русском: `<type>: <subject>`
+- All work is done on `main`
+- Conventional commits: `<type>: <subject>`
 - Types: `feat|fix|refactor|perf|docs|test|build|ci|chore|style|revert|deps|security`
-- Subject: прошедшее время, без точки, до 200 символов
-- Co-Authored-By в каждом коммите
-- Маленькие атомарные коммиты вместо больших diff
+- Subject: past tense, no period, up to 200 characters
+- Co-Authored-By in every commit
+- Small atomic commits over large diffs
 
-### Коммит
+### Commit
 
 ​```bash
 git pull --rebase origin main
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: добавлена валидация форм
+feat: added form validation
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 git push origin main
-# Если push rejected → git pull --rebase origin main && git push origin main
+# If push rejected → git pull --rebase origin main && git push origin main
 ​```
 
-### Завершение задачи (HARD GATE)
+### Task completion (HARD GATE)
 
-Задача НЕ считается выполненной, пока:
-1. `git push origin main` — прошёл успешно
-2. `git status --porcelain` — пусто (нет untracked файлов)
-3. `bd close <id>` и `bd sync` — выполнены (в team-режиме — Lead делает)
+A task is NOT considered complete until:
+1. `git push origin main` — succeeded
+2. `git status --porcelain` — empty (no untracked files)
+3. `bd close <id>` and `bd sync` — executed (in team mode — Lead does this)
 
-Запрещено писать «готов запушить» / «можно запушить позже». Агент обязан выполнить push сам.
+Never say "ready to push" / "can push later". The agent must push by itself.
 ```
 
 ## AGENTS.md
@@ -110,15 +110,15 @@ git push origin main
 
 <!-- bishx:init:project_description -->
 
-## Стек
+## Stack
 
 <!-- bishx:init:stack_detailed -->
 
-## Структура проекта
+## Project Structure
 
 <!-- bishx:init:project_structure -->
 
-## Паттерны
+## Patterns
 
-<!-- bishx:init:patterns — заполняется по мере развития проекта -->
+<!-- bishx:init:patterns — filled as the project evolves -->
 ```
