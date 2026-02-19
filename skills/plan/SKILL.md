@@ -704,7 +704,7 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
   "interview_round": 0,
   "interview_must_resolve_total": 0,
   "interview_must_resolve_closed": 0,
-  "pipeline_actor": "planner|parallel-review|critic|dry-run|\"\"",
+  "pipeline_actor": "planner|parallel-review|critic|\"\"",
   "parallel_actors": ["skeptic", "tdd-reviewer", "completeness-validator", "integration-validator"],
   "conditional_actors": ["security-reviewer", "performance-auditor"],
   "active_conditional": [],

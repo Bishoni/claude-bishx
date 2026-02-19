@@ -239,7 +239,7 @@ Update \`${SESSION_DIR}/state.json\`:
 - Set \`pipeline_actor\` to \`"critic"\`
 - Set \`critic_verdict\` to the verdict string
 - Append scores to \`scores_history\` array
-- Set \`flags\` to any special flags from the critic (NEEDS_RE_RESEARCH, NEEDS_HUMAN_INPUT)
+- Set \`flags\` to any special flags from the critic (NEEDS_RE_RESEARCH, NEEDS_HUMAN_INPUT, NEEDS_SPLIT)
 Emit \`<bishx-plan-done>\`
 HEREDOC
           ;;
