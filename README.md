@@ -52,7 +52,7 @@ Run `init` when starting a project from scratch. Run `init-sync` once there's co
 | `/bishx:prompt <idea>` | Turn a raw idea into a structured planning prompt |
 | `/bishx:plan <prompt>` | Run 5-actor verification pipeline (Researcher → Planner → Skeptic → TDD Reviewer → Critic) to produce a bulletproof implementation plan |
 | `/bishx:bd` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
-| `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → Reviewer → QA) |
+| `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run full` | Full cycle: development + code review + QA testing |
 | `/bishx:run dev` | Fast cycle: development + code review only |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs unit/integration/E2E/security/performance tests, reports bugs to bd |
@@ -99,10 +99,22 @@ Iterates up to 5 times until the Critic scores ≥20/25 (APPROVED).
 ### Execution pipeline
 
 ```
-Lead (orchestrator) → Dev (implementation) → Reviewer (code review) → QA (testing)
+Lead → Dev (opus) → 3 Reviewers (sonnet, parallel) → Validate (haiku) → QA (opus)
 ```
 
-Lead assigns bd tasks, Dev implements, Reviewer catches issues, QA validates. All agents run as independent tmux sessions via Agent Teams, communicating through `SendMessage` and sharing state through `TaskList`.
+Lead assigns bd tasks from the board and orchestrates the full cycle:
+
+1. **Dev** (opus) implements the task
+2. **Three parallel reviewers** (sonnet) analyze the diff independently:
+   - **Bug Reviewer** — correctness, logic errors, syntax, tests
+   - **Security Reviewer** — OWASP vulnerabilities, injection, XSS, SSRF, secrets
+   - **Compliance Reviewer** — CLAUDE.md/AGENTS.md project rules
+3. **Per-issue validation** (haiku) — each CRITICAL/MAJOR finding is independently confirmed or rejected by a haiku subagent to suppress false positives
+4. **QA** (opus) runs acceptance testing
+
+Each reviewer has formal severity definitions (CRITICAL/MAJOR/MINOR/INFO), HIGH SIGNAL filters ("what NOT to flag"), scope discipline (diff-only), and self-validation. Pass/fail is deterministic: zero CRITICAL + zero MAJOR + automated checks pass.
+
+Review approach inspired by the [Anthropic code-review plugin](https://github.com/anthropics/claude-code/tree/main/plugins/code-review).
 
 Lead performs centralized skill lookup from the skill library before each task, passing relevant skill paths to each agent (≤1500 lines budget per agent).
 
