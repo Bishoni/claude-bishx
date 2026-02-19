@@ -276,11 +276,45 @@ HEREDOC
 
             "REVISE")
               NEW_ITER=$((ITERATION + 1))
-              jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\"" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
+              jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\" | .flags = []" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
               OLD_ITER_DIR=$(printf "%02d" "$ITERATION")
               NEW_ITER_DIR=$(printf "%02d" "$NEW_ITER")
 
-              if echo "$FLAGS" | grep -q "NEEDS_RE_RESEARCH"; then
+              if echo "$FLAGS" | grep -q "NEEDS_SPLIT"; then
+                read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Plan flagged NEEDS_SPLIT (iteration ${NEW_ITER} of ${MAX_ITER}).
+
+The Critic determined the plan is too large or spans multiple bounded contexts and needs decomposition.
+
+1. Read the Critic report at \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
+2. Present the NEEDS_SPLIT recommendation to the human with suggested split boundaries
+3. Wait for human response — do NOT proceed automatically
+4. After receiving human guidance on how to split, either:
+   a. Decompose into sub-plans (create separate sessions for each), or
+   b. If human overrides, continue with the current plan as-is
+5. Update \`${SESSION_DIR}/CONTEXT.md\` with the split decision
+6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
+7. Spawn the planner with updated scope and emit \`<bishx-plan-done>\`
+
+Do NOT emit any signals until human responds.
+HEREDOC
+              elif echo "$FLAGS" | grep -q "NEEDS_HUMAN_INPUT"; then
+                read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Plan needs REVISION with NEEDS_HUMAN_INPUT flag (iteration ${NEW_ITER} of ${MAX_ITER}).
+
+The Critic needs human guidance before continuing.
+
+1. Read the Critic report at \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
+2. Present the specific questions/decisions that need human input
+3. Wait for human response — do NOT proceed automatically
+4. After receiving human input, update \`${SESSION_DIR}/CONTEXT.md\` with the new decisions
+5. Then spawn the researcher if NEEDS_RE_RESEARCH is also flagged, otherwise go straight to planner
+6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
+7. Continue the pipeline as normal after human input is incorporated, emit \`<bishx-plan-done>\`
+
+Do NOT emit any signals until human responds.
+HEREDOC
+              elif echo "$FLAGS" | grep -q "NEEDS_RE_RESEARCH"; then
                 read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan needs REVISION with RE-RESEARCH (iteration ${NEW_ITER} of ${MAX_ITER}).
 
@@ -344,7 +378,7 @@ HEREDOC
 
             "REJECT")
               NEW_ITER=$((ITERATION + 1))
-              jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\"" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
+              jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\" | .flags = []" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
               OLD_ITER_DIR=$(printf "%02d" "$ITERATION")
               NEW_ITER_DIR=$(printf "%02d" "$NEW_ITER")
 
@@ -359,7 +393,8 @@ The Critic needs human guidance before continuing.
 3. Wait for human response — do NOT proceed automatically
 4. After receiving human input, update \`${SESSION_DIR}/CONTEXT.md\` with the new decisions
 5. Then spawn the researcher if NEEDS_RE_RESEARCH is also flagged, otherwise go straight to planner
-6. Continue the pipeline as normal after human input is incorporated
+6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
+7. Continue the pipeline as normal after human input is incorporated, emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -406,7 +441,7 @@ HEREDOC
           if [[ "$VERDICT" == "REVISE" ]]; then
             # Dry-run FAIL path: route to planner for revision (not re-run dry-run)
             NEW_ITER=$((ITERATION + 1))
-            jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\" | .phase = \"pipeline\"" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
+            jq ".iteration = $NEW_ITER | .critic_verdict = \"\" | .pipeline_actor = \"planner\" | .phase = \"pipeline\" | .flags = []" "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
             OLD_ITER_DIR=$(printf "%02d" "$ITERATION")
             NEW_ITER_DIR=$(printf "%02d" "$NEW_ITER")
             read -r -d '' PROMPT << HEREDOC || true

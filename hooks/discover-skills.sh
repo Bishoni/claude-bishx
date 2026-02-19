@@ -1,5 +1,5 @@
 #!/bin/bash
-# Dynamic skill discovery for beast-plan
+# Dynamic skill discovery for bishx-plan
 # Finds skills by matching keywords in YAML frontmatter descriptions
 # Returns JSON array of top 3 matches: [{name, path, score}]
 set -euo pipefail
@@ -216,11 +216,11 @@ BEGIN {
 {
   if (!first) printf ","
   first = 0
-  # Escape double quotes and backslashes in strings for JSON
-  gsub(/"/, "\\\"", $2)
+  # Escape backslashes first, then double quotes for valid JSON
   gsub(/\\/, "\\\\", $2)
-  gsub(/"/, "\\\"", $3)
+  gsub(/"/, "\\\"", $2)
   gsub(/\\/, "\\\\", $3)
+  gsub(/"/, "\\\"", $3)
   printf "\n  {\"name\": \"%s\", \"path\": \"%s\", \"score\": %d}", $2, $3, $1
 }
 END {

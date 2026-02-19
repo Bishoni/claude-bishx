@@ -625,7 +625,7 @@ The hook reads the verdict from state.json and routes:
 
 ### Issue Lifecycle (across iterations)
 
-All actors use unified `{PREFIX}-NNN` issue IDs. Issues track across iterations:
+All actors use unified `{PREFIX}-NNN` issue IDs. Prefixes: SKEPTIC, TDD, COMPLETENESS, INTEGRATION, SECURITY, PERF, DRYRUN, REGRESS (critic regression), EXEC (critic executability checklist). Issues track across iterations:
 
 ```
 OPEN → FIXED (planner addressed) → VERIFIED (critic confirmed)
