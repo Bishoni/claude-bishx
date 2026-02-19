@@ -47,6 +47,7 @@ if [[ -n "$PLAN_STATE" && -f "$PLAN_STATE" ]]; then
     MAX_ITER=$(jq -r '.max_iterations // 5' "$PLAN_STATE")
     VERDICT=$(jq -r '.critic_verdict // ""' "$PLAN_STATE")
     FLAGS=$(jq -r '.flags // [] | join(",")' "$PLAN_STATE")
+    COMPLEXITY=$(jq -r '.complexity_tier // "medium"' "$PLAN_STATE")
 
     # Safety: max iterations reached
     if [[ "$ITERATION" -gt "$MAX_ITER" ]]; then
@@ -140,7 +141,46 @@ HEREDOC
         "pipeline:planner")
           ITER_DIR=$(printf "%02d" "$ITERATION")
           ACTIVE_CONDITIONAL=$(jq -r '.active_conditional // [] | join(",")' "$PLAN_STATE")
-          read -r -d '' PROMPT << HEREDOC || true
+
+          if [[ "$COMPLEXITY" == "trivial" ]]; then
+            # TRIVIAL: skip parallel review, go directly to critic
+            read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Plan created. Complexity tier is TRIVIAL — skipping parallel review, going directly to Critic.
+
+Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
+
+Spawn the Critic with simplified scoring (Correctness + Executability only):
+\`\`\`
+Task(subagent_type="bishx:critic", model="opus", prompt=<PLAN.md + CONTEXT.md + "TRIVIAL mode: score only Correctness and Executability dimensions">)
+\`\`\`
+
+Write output to \`${SESSION_DIR}/iterations/${ITER_DIR}/CRITIC-REPORT.md\`
+Parse verdict and score. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"critic"\`, update \`critic_verdict\`, \`critic_score_pct\`, \`scores_history\`
+Emit \`<bishx-plan-done>\`
+HEREDOC
+
+          elif [[ "$COMPLEXITY" == "small" ]]; then
+            # SMALL: lite pipeline — only Skeptic + Completeness
+            read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Plan created. Complexity tier is SMALL — running lite parallel review (Skeptic + Completeness only).
+
+Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
+
+Launch ONLY these 2 review actors IN PARALLEL:
+- Task(subagent_type="bishx:skeptic", model="opus", prompt=<PLAN.md content + CONTEXT.md summary>)
+- Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt=<PLAN.md content + CONTEXT.md content>)
+
+Write outputs to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
+- SKEPTIC-REPORT.md
+- COMPLETENESS-REPORT.md
+
+Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`
+Emit \`<bishx-plan-done>\`
+HEREDOC
+
+          else
+            # MEDIUM / LARGE / EPIC: full parallel review
+            read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan created. Now run PARALLEL REVIEW phase.
 
 Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
@@ -168,6 +208,7 @@ Write ALL outputs to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
 Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`
 Emit \`<bishx-plan-done>\`
 HEREDOC
+          fi
           ;;
 
         "pipeline:parallel-review")

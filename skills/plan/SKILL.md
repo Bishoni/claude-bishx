@@ -1,28 +1,43 @@
 ---
 name: plan
-description: Use for complex features needing bulletproof plans. Automated 5-actor verification loop (Researcher → Planner → Skeptic → TDD Reviewer → Critic) that iterates up to 5 times until the Critic approves, producing a one-shot-ready plan.
+description: Use for complex features needing bulletproof plans. Automated 10-actor verification pipeline (Researcher → Planner → [Skeptic + TDD + Completeness + Integration + Security* + Performance*] → Critic → Dry-Run) that iterates up to 5 times until the Critic approves (≥80%), producing a one-shot-ready plan.
 ---
 
 # Bishx-Plan: Automated Iterative Planning
 
-You are now operating as the Bishx-Plan orchestrator. You drive a 5-actor verification pipeline that produces bulletproof, one-shot-executable implementation plans.
+You are now operating as the Bishx-Plan orchestrator. You drive a 10-actor verification pipeline that produces bulletproof, one-shot-executable implementation plans.
 
 ## Pipeline Overview
 
 ```
-Interview → Research → [Planner → Skeptic → TDD Reviewer → Critic] ×N → Final Plan
-                        \_____________________________________________/
+Interview → Research → [Planner → Parallel Review → Critic → Dry-Run?] ×N → Final Plan
+                        \_______________________________________________/
                               Pipeline loop (max 5 iterations)
 ```
 
-**Actors:**
-- **Researcher** (opus): Deep codebase + external research with confidence tagging
-- **Planner** (opus): Creates bite-sized, TDD-embedded plans
-- **Skeptic** (opus): Hunts mirages — verifies claims against reality
-- **TDD Reviewer** (opus): Ensures genuine test-first compliance
-- **Critic** (opus): Final quality gate with scoring and verdict
+```
+                                  ┌─ Skeptic (opus)
+                                  ├─ TDD Reviewer (sonnet)
+Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet)     ] ──→ Critic (opus) ──→ Dry-Run (opus)
+                                  ├─ Integration (sonnet)
+                                  ├─ Security* (sonnet)
+                                  └─ Performance* (sonnet)
+                                    * = conditional
+```
 
-**The loop continues until the Critic scores >=20/25 (APPROVED) or 5 iterations are reached.**
+**Actors:**
+- **Researcher** (opus): Deep codebase + external research with RQ protocol and confidence tagging
+- **Planner** (opus): Creates bite-sized, TDD-embedded plans with complexity budget
+- **Skeptic** (opus): Hunts mirages (presence + absence) — verifies claims against reality
+- **TDD Reviewer** (sonnet): Ensures genuine test-first compliance with quantitative metrics
+- **Completeness Validator** (sonnet): Requirements traceability — every requirement ↔ task
+- **Integration Validator** (sonnet): Inter-task compatibility — dependency graph, data flow, shared resources
+- **Security Reviewer** (sonnet, conditional): Threat modeling, OWASP Top 10, auth boundaries
+- **Performance Auditor** (sonnet, conditional): N+1 queries, complexity, caching, resource usage
+- **Critic** (opus): Final quality gate with weighted scoring and cross-validated ceilings
+- **Dry-Run Simulator** (opus): Simulates executing first 3 tasks with zero context beyond the plan
+
+**The loop continues until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run passes, or 5 iterations are reached.**
 
 ## Session Directory
 
@@ -104,8 +119,6 @@ When bishx-plan is invoked:
      "parallel_actors": [],
      "conditional_actors": [],
      "active_conditional": [],
-     "parallel_complete": [],
-     "parallel_pending": [],
      "critic_verdict": "",
      "critic_score_pct": 0,
      "scores_history": [],
@@ -586,7 +599,7 @@ The hook reads the verdict from state.json and routes:
 **Score thresholds (percentage-based):**
 - **APPROVED (≥80%)** AND zero blocking issues → Phase 3d (Dry-Run) or Phase 4 (Finalize)
 - **REVISE (60-79%)** OR (≥80% with blocking issues) → Increment iteration, planner gets structured Action Items
-- **REJECT (<60%)** → Re-research if flagged, then planner with all feedback
+- **REJECT (<60%)** → Always re-research (a plan scoring this low needs new data), then planner with all feedback
 
 ### Sub-Phase 3d: Dry-Run Simulation (only after APPROVED)
 

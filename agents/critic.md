@@ -95,6 +95,15 @@ Your raw scores for the following dimensions are BOUNDED by findings from other 
 | 10–14 | 3 |
 | < 10 | 2 |
 
+### Executability Ceiling (from Integration Validator issue count)
+
+| Integration issues (BLOCKING + IMPORTANT) | Score ceiling |
+|--------------------------------------------|---------------|
+| 0 issues | 5 |
+| 1 issue | 4 |
+| 2–3 issues | 3 |
+| 4+ issues | 2 |
+
 If a reviewer did not run, the ceiling for that dimension is unconstrained (defaults to your own assessment).
 
 ---

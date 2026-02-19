@@ -1,7 +1,7 @@
 ---
 name: tdd-reviewer
 description: TDD compliance reviewer for bishx-plan. Ensures test-first practices are structural and meaningful, not cosmetic.
-model: opus
+model: sonnet
 tools: Read, Glob, Grep, Bash
 ---
 
