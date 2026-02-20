@@ -44,7 +44,7 @@ if [[ -n "$PLAN_STATE" && -f "$PLAN_STATE" ]]; then
     PHASE=$(jq -r '.phase // ""' "$PLAN_STATE")
     ACTOR=$(jq -r '.pipeline_actor // ""' "$PLAN_STATE")
     ITERATION=$(jq -r '.iteration // 1' "$PLAN_STATE")
-    MAX_ITER=$(jq -r '.max_iterations // 5' "$PLAN_STATE")
+    MAX_ITER=$(jq -r '.max_iterations // 10' "$PLAN_STATE")
     VERDICT=$(jq -r '.critic_verdict // ""' "$PLAN_STATE")
     FLAGS=$(jq -r '.flags // [] | join(",")' "$PLAN_STATE")
     COMPLEXITY=$(jq -r '.complexity_tier // "medium"' "$PLAN_STATE")

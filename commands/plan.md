@@ -1,5 +1,5 @@
 ---
-description: Start automated iterative planning with 10-actor parallel verification pipeline
+description: Start automated iterative planning with 10-actor parallel verification pipeline (up to 10 iterations)
 ---
 
 Invoke the `bishx:plan` skill and follow it exactly.

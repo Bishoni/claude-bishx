@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use for complex features needing bulletproof plans. Automated 10-actor verification pipeline (Researcher → Planner → [Skeptic + TDD + Completeness + Integration + Security* + Performance*] → Critic → Dry-Run) that iterates up to 5 times until the Critic approves (≥80%), producing a one-shot-ready plan.
+description: Use for complex features needing bulletproof plans. Automated 10-actor verification pipeline (Researcher → Planner → [Skeptic + TDD + Completeness + Integration + Security* + Performance*] → Critic → Dry-Run) that iterates up to 10 times until the Critic approves (≥80%), producing a one-shot-ready plan.
 ---
 
 # Bishx-Plan: Automated Iterative Planning
@@ -12,7 +12,7 @@ You are now operating as the Bishx-Plan orchestrator. You drive a 10-actor verif
 ```
 Interview → Research → [Planner → Parallel Review → Critic → Dry-Run?] ×N → Final Plan
                         \_______________________________________________/
-                              Pipeline loop (max 5 iterations)
+                              Pipeline loop (max 10 iterations)
 ```
 
 ```
@@ -37,7 +37,7 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet)     ] ─�
 - **Critic** (opus): Final quality gate with weighted scoring and cross-validated ceilings
 - **Dry-Run Simulator** (opus): Simulates executing first 3 tasks with zero context beyond the plan
 
-**The loop continues until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run passes, or 5 iterations are reached.**
+**The loop continues until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run passes, or 10 iterations are reached.**
 
 ## Session Directory
 
@@ -109,7 +109,7 @@ When bishx-plan is invoked:
      "session_dir": "{YYYY-MM-DD_HH-MM}",
      "task_description": "{user's request}",
      "iteration": 1,
-     "max_iterations": 5,
+     "max_iterations": 10,
      "tdd_enabled": true,
      "phase": "interview",
      "complexity_tier": "",
@@ -701,7 +701,7 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
   "session_dir": "string",
   "task_description": "string",
   "iteration": 1,
-  "max_iterations": 5,
+  "max_iterations": 10,
   "tdd_enabled": true,
   "complexity_tier": "trivial|small|medium|large|epic",
   "phase": "interview|research|pipeline|dry-run|finalize|complete|max_iterations",
