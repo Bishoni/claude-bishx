@@ -50,6 +50,11 @@ if [[ -n "$PLAN_STATE" && -f "$PLAN_STATE" ]]; then
     COMPLEXITY=$(jq -r '.complexity_tier // "medium"' "$PLAN_STATE")
     if [[ -z "$COMPLEXITY" ]]; then COMPLEXITY="medium"; fi
 
+    # Phase already complete — don't interfere (active=false may not be written yet)
+    if [[ "$PHASE" == "complete" || "$PHASE" == "max_iterations" ]]; then
+      exit 0
+    fi
+
     # Safety: max iterations reached
     if [[ "$ITERATION" -gt "$MAX_ITER" ]]; then
       jq '.phase = "max_iterations"' "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
@@ -126,16 +131,17 @@ HEREDOC
           read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Research complete. Now run the PLANNING phase (iteration starts).
 
-1. Read \`${SESSION_DIR}/CONTEXT.md\` and \`${SESSION_DIR}/RESEARCH.md\`
-2. Spawn the planner agent:
+1. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, \`agent_pending\` to \`true\`
+2. Read \`${SESSION_DIR}/CONTEXT.md\` and \`${SESSION_DIR}/RESEARCH.md\`
+3. Spawn the planner agent:
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<CONTEXT.md + RESEARCH.md content>)
    \`\`\`
    Pass both files' content in the prompt. The planner creates a detailed, TDD-embedded, one-shot-executable implementation plan.
-3. Create directory \`${SESSION_DIR}/iterations/01/\` (use current iteration number, zero-padded)
-4. Write the planner's output to \`${SESSION_DIR}/iterations/01/PLAN.md\`
-5. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-6. Emit \`<bishx-plan-done>\`
+4. When planner completes: set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+5. Create directory \`${SESSION_DIR}/iterations/01/\` (use current iteration number, zero-padded)
+6. Write the planner's output to \`${SESSION_DIR}/iterations/01/PLAN.md\`
+7. Emit \`<bishx-plan-done>\`
 HEREDOC
           ;;
 
@@ -148,18 +154,18 @@ HEREDOC
             read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan created. Complexity tier is TRIVIAL — skipping parallel review, going directly to Critic.
 
-Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
-
-Spawn the Critic with simplified scoring (Correctness + Executability only):
-\`\`\`
-Task(subagent_type="bishx:critic", model="opus", prompt=<PLAN.md + CONTEXT.md + "TRIVIAL mode: score only Correctness and Executability dimensions">)
-\`\`\`
-
-Write TWO files to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
-- \`CRITIC-REPORT.md\` — the evaluation report
-- \`VERIFIED_ITEMS.md\` — regression baseline for the next iteration (see critic agent instructions)
-Parse verdict and score. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"critic"\`, update \`critic_verdict\`, \`critic_score_pct\`, \`scores_history\`
-Emit \`<bishx-plan-done>\`
+1. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"critic"\`, \`agent_pending\` to \`true\`
+2. Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
+3. Spawn the Critic with simplified scoring (Correctness + Executability only):
+   \`\`\`
+   Task(subagent_type="bishx:critic", model="opus", prompt=<PLAN.md + CONTEXT.md + "TRIVIAL mode: score only Correctness and Executability dimensions">)
+   \`\`\`
+4. When Critic completes: set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+5. Write TWO files to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
+   - \`CRITIC-REPORT.md\` — the evaluation report
+   - \`VERIFIED_ITEMS.md\` — regression baseline for the next iteration (see critic agent instructions)
+6. Parse verdict and score. Update \`${SESSION_DIR}/state.json\`: set \`critic_verdict\`, \`critic_score_pct\`, \`scores_history\`
+7. Emit \`<bishx-plan-done>\`
 HEREDOC
 
           elif [[ "$COMPLEXITY" == "small" ]]; then
@@ -167,18 +173,14 @@ HEREDOC
             read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan created. Complexity tier is SMALL — running lite parallel review (Skeptic + Completeness only).
 
-Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
-
-Launch ONLY these 2 review actors IN PARALLEL:
-- Task(subagent_type="bishx:skeptic", model="opus", prompt=<PLAN.md content + CONTEXT.md summary>)
-- Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt=<PLAN.md content + CONTEXT.md content>)
-
-Write outputs to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
-- SKEPTIC-REPORT.md
-- COMPLETENESS-REPORT.md
-
-Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`
-Emit \`<bishx-plan-done>\`
+1. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`, \`agent_pending\` to \`true\`
+2. Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
+3. Launch ONLY these 2 review actors IN PARALLEL (prepend OUTPUT_PATH to each prompt — agents write reports to disk themselves):
+   - Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SKEPTIC-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md summary>)
+   - Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/COMPLETENESS-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md content>)
+4. When ALL actors complete: verify report files exist via Glob("${SESSION_DIR}/iterations/${ITER_DIR}/*-REPORT.md"). If any missing — warn user.
+5. Set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+6. Emit \`<bishx-plan-done>\`
 HEREDOC
 
           else
@@ -186,30 +188,24 @@ HEREDOC
             read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan created. Now run PARALLEL REVIEW phase.
 
-Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
+1. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`, \`agent_pending\` to \`true\`
+2. Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
+3. Launch ALL applicable review actors IN PARALLEL (single response, multiple Task calls).
+   Prepend OUTPUT_PATH to each prompt — agents write reports to disk themselves via Write tool.
 
-Launch ALL applicable review actors IN PARALLEL (single response, multiple Task calls):
+   Always-on actors:
+   - Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SKEPTIC-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md summary>)
+   - Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/TDD-REPORT.md\n\n" + <PLAN.md content>)
+   - Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/COMPLETENESS-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md content>)
+   - Task(subagent_type="bishx:integration-validator", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/INTEGRATION-REPORT.md\n\n" + <PLAN.md content>)
 
-Always-on actors:
-- Task(subagent_type="bishx:skeptic", model="opus", prompt=<PLAN.md content + CONTEXT.md summary>)
-- Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt=<PLAN.md content>)
-- Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt=<PLAN.md content + CONTEXT.md content>)
-- Task(subagent_type="bishx:integration-validator", model="sonnet", prompt=<PLAN.md content>)
+   Conditional actors (check state.json active_conditional field — current value: "${ACTIVE_CONDITIONAL}"):
+   - If "security-reviewer" is in active_conditional: Task(subagent_type="bishx:security-reviewer", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SECURITY-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md content>)
+   - If "performance-auditor" is in active_conditional: Task(subagent_type="bishx:performance-auditor", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/PERFORMANCE-REPORT.md\n\n" + <PLAN.md content>)
 
-Conditional actors (check state.json active_conditional field — current value: "${ACTIVE_CONDITIONAL}"):
-- If "security-reviewer" is in active_conditional: Task(subagent_type="bishx:security-reviewer", model="sonnet", prompt=<PLAN.md content + CONTEXT.md content>)
-- If "performance-auditor" is in active_conditional: Task(subagent_type="bishx:performance-auditor", model="sonnet", prompt=<PLAN.md content>)
-
-Write ALL outputs to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
-- SKEPTIC-REPORT.md
-- TDD-REPORT.md
-- COMPLETENESS-REPORT.md
-- INTEGRATION-REPORT.md
-- SECURITY-REPORT.md (if security-reviewer was run)
-- PERFORMANCE-REPORT.md (if performance-auditor was run)
-
-Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`
-Emit \`<bishx-plan-done>\`
+4. When ALL actors complete: verify ALL expected report files exist via Glob("${SESSION_DIR}/iterations/${ITER_DIR}/*-REPORT.md"). If any missing — warn user, do NOT proceed.
+5. Set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+6. Emit \`<bishx-plan-done>\`
 HEREDOC
           fi
           ;;
@@ -219,57 +215,57 @@ HEREDOC
           read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Parallel review complete. Now run the CRITIC evaluation.
 
-Read ALL report files from \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
-- PLAN.md
-- SKEPTIC-REPORT.md (if exists)
-- TDD-REPORT.md (if exists)
-- COMPLETENESS-REPORT.md (if exists)
-- INTEGRATION-REPORT.md (if exists)
-- SECURITY-REPORT.md (if exists)
-- PERFORMANCE-REPORT.md (if exists)
-- \`${SESSION_DIR}/CONTEXT.md\`
-- \`${SESSION_DIR}/RESEARCH.md\`
+1. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"critic"\`, \`agent_pending\` to \`true\`
+2. Read ALL report files from \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
+   - PLAN.md
+   - SKEPTIC-REPORT.md (if exists)
+   - TDD-REPORT.md (if exists)
+   - COMPLETENESS-REPORT.md (if exists)
+   - INTEGRATION-REPORT.md (if exists)
+   - SECURITY-REPORT.md (if exists)
+   - PERFORMANCE-REPORT.md (if exists)
+   - \`${SESSION_DIR}/CONTEXT.md\`
+   - \`${SESSION_DIR}/RESEARCH.md\`
 
-If iteration > 1: also read the PREVIOUS iteration's \`VERIFIED_ITEMS.md\` for regression baseline.
-Example: if current iteration is 02, read \`${SESSION_DIR}/iterations/01/VERIFIED_ITEMS.md\` (if exists).
+   If iteration > 1: also read the PREVIOUS iteration's \`VERIFIED_ITEMS.md\` for regression baseline.
+   Example: if current iteration is 02, read \`${SESSION_DIR}/iterations/01/VERIFIED_ITEMS.md\` (if exists).
 
-Spawn critic:
-\`\`\`
-Task(subagent_type="bishx:critic", model="opus", prompt=<all reports + context + research + previous VERIFIED_ITEMS.md if applicable>)
-\`\`\`
-
-Write TWO files to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
-- \`CRITIC-REPORT.md\` — the full evaluation report
-- \`VERIFIED_ITEMS.md\` — regression baseline for the next iteration (see critic agent instructions)
-Parse verdict (APPROVED/REVISE/REJECT), score percentage, blocking issue count.
-Update \`${SESSION_DIR}/state.json\`:
-- Set \`pipeline_actor\` to \`"critic"\`
-- Set \`critic_verdict\` to the verdict string
-- Append scores to \`scores_history\` array
-- Set \`flags\` to any special flags from the critic (NEEDS_RE_RESEARCH, NEEDS_HUMAN_INPUT, NEEDS_SPLIT)
-Emit \`<bishx-plan-done>\`
+3. Spawn critic:
+   \`\`\`
+   Task(subagent_type="bishx:critic", model="opus", prompt=<all reports + context + research + previous VERIFIED_ITEMS.md if applicable>)
+   \`\`\`
+4. When Critic completes: set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+5. Write TWO files to \`${SESSION_DIR}/iterations/${ITER_DIR}/\`:
+   - \`CRITIC-REPORT.md\` — the full evaluation report
+   - \`VERIFIED_ITEMS.md\` — regression baseline for the next iteration (see critic agent instructions)
+6. Parse verdict (APPROVED/REVISE/REJECT), score percentage, blocking issue count.
+7. Update \`${SESSION_DIR}/state.json\`:
+   - Set \`critic_verdict\` to the verdict string
+   - Append scores to \`scores_history\` array
+   - Set \`flags\` to any special flags from the critic (NEEDS_RE_RESEARCH, NEEDS_HUMAN_INPUT, NEEDS_SPLIT)
+8. Emit \`<bishx-plan-done>\`
 HEREDOC
           ;;
 
         "pipeline:critic")
+          DRY_RUN_ENABLED=$(jq -r '.dry_run_enabled // false' "$PLAN_STATE")
           case "$VERDICT" in
             "APPROVED")
               ITER_DIR=$(printf "%02d" "$ITERATION")
-              read -r -d '' PROMPT << HEREDOC || true
-BISHX-PLAN: Plan APPROVED! Running DRY-RUN SIMULATION as final gate.
+              if [[ "$DRY_RUN_ENABLED" == "true" ]]; then
+                read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Plan APPROVED! Running DRY-RUN SIMULATION (opt-in via +dry-run flag).
 
-Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"dry-run"\`, \`pipeline_actor\` to \`""\`
-
-Read ONLY \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\`
-
-Spawn:
-\`\`\`
-Task(subagent_type="bishx:dry-run-simulator", model="opus", prompt=<PLAN.md content only>)
-\`\`\`
-IMPORTANT: Do NOT pass CONTEXT.md or RESEARCH.md — the simulator must verify executability with the plan alone.
-
-Write the simulator's output to \`${SESSION_DIR}/iterations/${ITER_DIR}/DRYRUN-REPORT.md\`
-Parse verdict from the output: PASS, FAIL, or WARN
+1. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"dry-run"\`, \`pipeline_actor\` to \`""\`, \`agent_pending\` to \`true\`
+2. Read ONLY \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\`
+3. Spawn:
+   \`\`\`
+   Task(subagent_type="bishx:dry-run-simulator", model="opus", prompt=<PLAN.md content only>)
+   \`\`\`
+   IMPORTANT: Do NOT pass CONTEXT.md or RESEARCH.md — the simulator must verify executability with the plan alone.
+4. When simulator completes: set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+5. Write the simulator's output to \`${SESSION_DIR}/iterations/${ITER_DIR}/DRYRUN-REPORT.md\`
+6. Parse verdict from the output: PASS, FAIL, or WARN
 
 If PASS or WARN:
 - Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"finalize"\`
@@ -279,6 +275,21 @@ If FAIL:
 - Update \`${SESSION_DIR}/state.json\`: set \`critic_verdict\` to \`"REVISE"\`, append DRYRUN issues to feedback
 - Emit \`<bishx-plan-done>\` (the hook will route to REVISE)
 HEREDOC
+              else
+                read -r -d '' PROMPT << HEREDOC || true
+BISHX-PLAN: Plan APPROVED! Dry-run is disabled (default). Proceeding directly to FINALIZE.
+
+1. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"finalize"\`, \`pipeline_actor\` to \`""\`
+2. Proceed to Phase 4 (Finalize):
+   - Read the approved plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\`
+   - Read the Critic report from \`${SESSION_DIR}/iterations/${ITER_DIR}/CRITIC-REPORT.md\`
+   - Write \`${SESSION_DIR}/APPROVED_PLAN.md\` (copy of approved plan with Execution Readiness Summary appended)
+   - Generate datetime filename and write to \`~/.claude/plans/\`
+   - Present final summary to human
+3. Update state.json: \`phase\` → \`"finalize"\`
+4. Emit \`<bishx-plan-done>\`
+HEREDOC
+              fi
               ;;
 
             "REVISE")
@@ -302,7 +313,7 @@ The Critic determined the plan is too large or spans multiple bounded contexts a
    b. If human overrides, continue with the current plan as-is
 6. Update \`${SESSION_DIR}/CONTEXT.md\` with the split decision
 7. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-8. Spawn the planner with updated scope. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md." Emit \`<bishx-plan-done>\`
+8. Set \`agent_pending\` to \`true\` in \`${SESSION_DIR}/state.json\`. Spawn the planner with updated scope. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md." When planner completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -318,7 +329,7 @@ The Critic needs human guidance before continuing.
 4. After receiving human input, update \`${SESSION_DIR}/CONTEXT.md\` with the new decisions
 5. Then spawn the researcher if NEEDS_RE_RESEARCH is also flagged, otherwise go straight to planner
 6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-7. Continue the pipeline as normal after human input is incorporated, emit \`<bishx-plan-done>\`
+7. Set \`agent_pending\` to \`true\` before spawning any agent. Continue the pipeline as normal after human input is incorporated. When agent completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -328,13 +339,16 @@ BISHX-PLAN: Plan needs REVISION with RE-RESEARCH (iteration ${NEW_ITER} of ${MAX
 
 The Critic flagged NEEDS_RE_RESEARCH. Run targeted research first.
 
-1. Read the Critic report at \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\` to identify what needs re-research.
-2. Spawn the researcher agent with targeted scope:
+**IMPORTANT:** Before spawning any agent, set \`agent_pending\` to \`true\` in state.json. After the agent completes, set it to \`false\`.
+
+1. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
+2. Read the Critic report at \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\` to identify what needs re-research.
+3. Set \`agent_pending\` to \`true\` in state.json. Spawn the researcher agent with targeted scope:
    \`\`\`
    Task(subagent_type="bishx:researcher", model="opus", prompt=<targeted research questions from critic report>)
    \`\`\`
-3. Append the new findings to \`${SESSION_DIR}/RESEARCH.md\` under a "## Supplemental Research (Iteration ${NEW_ITER})" heading.
-4. Then read ALL available feedback (skip files that don't exist — not all actors run in every complexity tier):
+4. When researcher completes: set \`agent_pending\` to \`false\`. Append the new findings to \`${SESSION_DIR}/RESEARCH.md\` under a "## Supplemental Research (Iteration ${NEW_ITER})" heading.
+5. Read ALL available feedback (skip files that don't exist — not all actors run in every complexity tier):
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/COMPLETENESS-REPORT.md\` (if exists)
@@ -346,19 +360,21 @@ The Critic flagged NEEDS_RE_RESEARCH. Run targeted research first.
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
    - Updated \`${SESSION_DIR}/RESEARCH.md\`
    - \`${SESSION_DIR}/CONTEXT.md\`
-5. Spawn the planner agent:
+6. Set \`agent_pending\` to \`true\` in state.json. Spawn the planner agent:
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<all feedback + research + context>)
    \`\`\`
    Tell the planner: "Address EVERY issue from prior reports. Do NOT break items listed in VERIFIED_ITEMS.md. Include a Revision Notes section."
-6. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
-7. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
-8. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
-9. Emit \`<bishx-plan-done>\`
+7. When planner completes: set \`agent_pending\` to \`false\`
+8. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
+9. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
+10. Emit \`<bishx-plan-done>\`
 HEREDOC
               else
                 read -r -d '' PROMPT << HEREDOC || true
 BISHX-PLAN: Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
+
+**IMPORTANT:** Before spawning any agent, set \`agent_pending\` to \`true\` in state.json. After the agent completes, set it to \`false\`.
 
 1. Read ALL available feedback from the previous iteration (skip files that don't exist — not all actors run in every complexity tier):
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/PLAN.md\` (previous plan for reference)
@@ -373,15 +389,16 @@ BISHX-PLAN: Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
    - \`${SESSION_DIR}/CONTEXT.md\`
    - \`${SESSION_DIR}/RESEARCH.md\`
-2. Spawn the planner agent:
+2. Set \`agent_pending\` to \`true\` in state.json. Spawn the planner agent:
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<all available feedback + context + research>)
    \`\`\`
    Tell the planner: "This is iteration ${NEW_ITER}. Address EVERY issue from the available review reports and the Critic report. Do NOT break items listed in VERIFIED_ITEMS.md. Include a Revision Notes section at the top listing each issue and how it was addressed. Do not silently ignore feedback."
-3. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
-4. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
-5. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
-6. Emit \`<bishx-plan-done>\`
+3. When planner completes: set \`agent_pending\` to \`false\` in state.json.
+4. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
+5. Write the planner's output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
+6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
+7. Emit \`<bishx-plan-done>\`
 HEREDOC
               fi
               ;;
@@ -404,7 +421,7 @@ The Critic needs human guidance before continuing.
 4. After receiving human input, update \`${SESSION_DIR}/CONTEXT.md\` with the new decisions
 5. Then spawn the researcher if NEEDS_RE_RESEARCH is also flagged, otherwise go straight to planner
 6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-7. Continue the pipeline as normal after human input is incorporated, emit \`<bishx-plan-done>\`
+7. Set \`agent_pending\` to \`true\` before spawning any agent. Continue the pipeline as normal after human input is incorporated. When agent completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -414,12 +431,14 @@ BISHX-PLAN: Plan REJECTED (iteration ${NEW_ITER} of ${MAX_ITER}).
 
 Fundamental issues require re-research.
 
+**IMPORTANT:** Before spawning any agent, set \`agent_pending\` to \`true\` in state.json. After the agent completes, set it to \`false\`.
+
 1. Read the Critic report at \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
-2. Spawn the researcher agent with targeted scope based on the rejection reasons:
+2. Set \`agent_pending\` to \`true\` in state.json. Spawn the researcher agent with targeted scope based on the rejection reasons:
    \`\`\`
    Task(subagent_type="bishx:researcher", model="opus", prompt=<rejection reasons + targeted research questions>)
    \`\`\`
-3. Append findings to \`${SESSION_DIR}/RESEARCH.md\` under "## Re-Research (Iteration ${NEW_ITER})"
+3. When researcher completes: set \`agent_pending\` to \`false\`. Append findings to \`${SESSION_DIR}/RESEARCH.md\` under "## Re-Research (Iteration ${NEW_ITER})"
 4. Read ALL available prior feedback and updated research (skip files that don't exist — not all actors run in every complexity tier):
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/SKEPTIC-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/TDD-REPORT.md\` (if exists)
@@ -430,11 +449,12 @@ Fundamental issues require re-research.
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/DRYRUN-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
-5. Spawn the planner agent with all available context. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md."
-6. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
-7. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
-8. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
-9. Emit \`<bishx-plan-done>\`
+5. Set \`agent_pending\` to \`true\` in state.json. Spawn the planner agent with all available context. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md."
+6. When planner completes: set \`agent_pending\` to \`false\`
+7. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
+8. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
+9. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
+10. Emit \`<bishx-plan-done>\`
 HEREDOC
               fi
               ;;
@@ -519,6 +539,13 @@ HEREDOC
     fi
 
     # No signal detected — handle based on phase (bishx-plan)
+    # Check if an agent is currently running in the background
+    AGENT_PENDING=$(jq -r '.agent_pending // false' "$PLAN_STATE")
+    if [[ "$AGENT_PENDING" == "true" ]]; then
+      # Agent is executing in background — don't interfere
+      exit 0
+    fi
+
     case "$PHASE:$ACTOR" in
       "interview:")
         # Don't block during interview — let Claude wait for user input
@@ -533,13 +560,41 @@ HEREDOC
             PROMPT="BISHX-PLAN: You are in the PLANNING phase. Spawn the planner agent and write PLAN.md. When done, update state.json and emit <bishx-plan-done>."
             ;;
           "pipeline:parallel-review")
-            PROMPT="BISHX-PLAN: You are in PARALLEL REVIEW. Launch all parallel actors (skeptic, tdd-reviewer, completeness-validator, integration-validator, plus any conditional actors) and write all reports. When done, update state.json and emit <bishx-plan-done>."
+            # Check if reports already exist on disk (agents write directly)
+            PR_ITER_DIR=$(printf "%02d" "$ITERATION")
+            PR_REPORTS_DIR="$SESSION_DIR/iterations/$PR_ITER_DIR"
+            PR_FOUND=0
+            PR_EXPECTED=("SKEPTIC-REPORT.md" "TDD-REPORT.md" "COMPLETENESS-REPORT.md" "INTEGRATION-REPORT.md")
+            PR_ACTIVE_COND=$(jq -r '.active_conditional // [] | .[]' "$PLAN_STATE" 2>/dev/null || true)
+            echo "$PR_ACTIVE_COND" | grep -q "security-reviewer" 2>/dev/null && PR_EXPECTED+=("SECURITY-REPORT.md")
+            echo "$PR_ACTIVE_COND" | grep -q "performance-auditor" 2>/dev/null && PR_EXPECTED+=("PERFORMANCE-REPORT.md")
+            # For SMALL tier, only expect 2 reports
+            if [[ "$COMPLEXITY" == "small" ]]; then
+              PR_EXPECTED=("SKEPTIC-REPORT.md" "COMPLETENESS-REPORT.md")
+            fi
+            PR_TOTAL=${#PR_EXPECTED[@]}
+            for prf in "${PR_EXPECTED[@]}"; do
+              [[ -f "$PR_REPORTS_DIR/$prf" ]] && ((PR_FOUND++)) || true
+            done
+
+            if [[ $PR_FOUND -eq $PR_TOTAL ]]; then
+              PROMPT="BISHX-PLAN: All $PR_TOTAL review reports found on disk in $PR_REPORTS_DIR. Transition to CRITIC phase. Set pipeline_actor to 'critic', agent_pending to true, read all reports, and proceed to Critic. When done, update state.json and emit <bishx-plan-done>."
+            elif [[ $PR_FOUND -gt 0 ]]; then
+              PROMPT="BISHX-PLAN: $PR_FOUND/$PR_TOTAL review reports written to $PR_REPORTS_DIR. Some agents may still be running. Check remaining reports and wait for completion. When ALL reports exist, set agent_pending to false and emit <bishx-plan-done>."
+            else
+              PROMPT="BISHX-PLAN: You are in PARALLEL REVIEW. Launch all parallel actors (with OUTPUT_PATH for each) and let them write reports to disk. When done, verify all files exist, update state.json and emit <bishx-plan-done>."
+            fi
             ;;
           "pipeline:critic")
             PROMPT="BISHX-PLAN: You are in the CRITIC phase. Spawn the critic agent and write CRITIC-REPORT.md. When done, update state.json with the verdict and emit <bishx-plan-done>."
             ;;
           "dry-run:")
-            PROMPT="BISHX-PLAN: You are in DRY-RUN phase. Spawn the dry-run simulator with PLAN.md only. Write DRYRUN-REPORT.md, parse the verdict, update state.json, and emit <bishx-plan-done>."
+            DRY_RUN_CHECK=$(jq -r '.dry_run_enabled // false' "$PLAN_STATE")
+            if [[ "$DRY_RUN_CHECK" == "true" ]]; then
+              PROMPT="BISHX-PLAN: You are in DRY-RUN phase. Spawn the dry-run simulator with PLAN.md only. Write DRYRUN-REPORT.md, parse the verdict, update state.json, and emit <bishx-plan-done>."
+            else
+              PROMPT="BISHX-PLAN: Dry-run is disabled but phase is dry-run. This is unexpected. Set phase to 'finalize' and emit <bishx-plan-done>."
+            fi
             ;;
           "finalize:")
             PROMPT="BISHX-PLAN: Finalization in progress. Complete the finalization steps and emit <bishx-plan-done>."
@@ -585,6 +640,9 @@ if [[ -f "$RUN_STATE" ]]; then
     if [[ -n "$WAITING_FOR" && "$WAITING_FOR" != "null" ]]; then
       # Lead is WAITING for a teammate → allow stop, teammate's SendMessage
       # will be delivered automatically as a new turn
+      exit 0
+    elif [[ -z "$CURRENT_TASK" || "$CURRENT_TASK" == "null" ]]; then
+      # No current task → IDLE mode, allow exit
       exit 0
     else
       # Lead is NOT waiting → short nudge to continue

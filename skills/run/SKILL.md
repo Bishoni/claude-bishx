@@ -80,28 +80,38 @@ Task(
 
 ## Phase 0.5: Epic Selection
 
-Before entering the main loop, ask the user which epic to work on.
+Before entering the main loop, select which epic to work on.
 
 ### Algorithm
 
-1. **Gather data:**
+1. **Check arguments first.** If the user passed an epic name argument (non-flag text in $ARGUMENTS, e.g. `/bishx:run auth`):
+   - Extract the epic name query (everything that is not a `--flag`)
+   - Proceed to step 2 with `epic_query` set
+
+2. **Gather data:**
    ```bash
    bd list --type epic --json    # all epics
    bd ready --json               # all available (unblocked) tasks
    ```
 
-2. **Build epic summary.** For each epic:
+3. **Build epic summary.** For each epic:
    - Count available tasks (from `bd ready` that belong to this epic via parent chain)
    - Count total tasks and closed tasks (via `bd children {epic_id} --json`, recursively through features)
    - Categorize tasks by keywords in title/description: "backend", "frontend", "test", "api", "fix", etc.
    - Skip epics with 0 available tasks
 
-3. **Decision logic:**
+4. **If `epic_query` is set** (user passed epic name as argument):
+   - Search among epics WITH available tasks for a case-insensitive partial match of `epic_query` in the epic title
+   - **Exactly 1 match** → auto-select it, tell user: "Epic selected: {title} ({N} tasks ready)"
+   - **Multiple matches** → show only matched epics in AskUserQuestion (same format as step 5)
+   - **0 matches among epics with tasks** → tell user: "No available epic matching '{epic_query}'". Fall through to standard selection (step 5)
+
+5. **Decision logic** (standard, when no argument or argument didn't match):
    - **0 epics with available tasks** → tell the user "No epics with available tasks", enter IDLE
    - **1 epic with available tasks** → auto-select, tell the user which one, no question
    - **2+ epics with available tasks** → use AskUserQuestion
 
-4. **AskUserQuestion format** (when 2+ epics):
+6. **AskUserQuestion format** (when 2+ epics):
    ```
    question: "Which epic to work on?"
    header: "Epic"
@@ -117,7 +127,7 @@ Before entering the main loop, ask the user which epic to work on.
 
    If more than 4 epics have available tasks, show the top 4 by number of ready tasks.
 
-5. **Save selection:** Update state: `epic_id = selected_epic_id`.
+7. **Save selection:** Update state: `epic_id = selected_epic_id`.
 
 ### Epic Exhaustion
 
@@ -184,6 +194,7 @@ LOOP:
      ASSIGN DEV:
      dev alive (check state.teammates.dev) and same phase → SendMessage(recipient=state.teammates.dev, content=task).
      Otherwise → spawn new dev. Update state: teammates.dev = "{new_dev_name}".
+     When spawning dev, fill `{bd show EPIC_ID}` in the "Feature context" section of dev's prompt with actual `bd show {state.epic_id}` output.
 
   5. UPDATE STATE: set waiting_for="dev" in state.json.
      WAIT dev → "Done, files: [...]". Real SendMessage. Do NOT proceed until you receive it.
@@ -271,6 +282,7 @@ LOOP:
      ASSIGN QA:
      qa alive (check state.teammates.qa) and same phase → SendMessage(recipient=state.teammates.qa, content=task).
      Otherwise → spawn new qa. Update state: teammates.qa = "{new_qa_name}".
+     When spawning qa, fill `{bd show EPIC_ID}` in the "Feature context" section of qa's prompt with actual `bd show {state.epic_id}` output.
 
   10. UPDATE STATE: set waiting_for="qa" in state.json.
       WAIT qa → "QA passed" / "QA failed". Real SendMessage.
@@ -372,6 +384,10 @@ User writes you tasks, ideas, thoughts. You discuss with Lead whether to do them
 ```
 You are "{dev_name}" in a bishx-run team.
 
+## Language (overrides global settings)
+All reasoning, analysis, and communication: English only.
+Code comments: follow project conventions.
+
 ## Team
 - Lead ({lead_name}) — your boss. He commits, pushes, and manages code review.
 To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
@@ -380,6 +396,10 @@ Lead MUST fill {dev_name}, {lead_name} with actual teammate names when spawning.
 
 ## Project context
 Read CLAUDE.md and AGENTS.md for project rules.
+
+## Feature context
+{bd show EPIC_ID — Epic description contains the full feature spec: user stories, scope, decisions, constraints, risks}
+Read this to understand the big picture of what you're building, what's in/out of scope, and what constraints apply.
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
@@ -419,6 +439,9 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 
 ```
 You are "{bug_reviewer_name}" in a bishx-run team. Bug and correctness review.
+
+## Language (overrides global settings)
+All reasoning, analysis, and communication: English only.
 
 ## Team
 - Lead ({lead_name}) — orchestrator. Report ALL findings to Lead only.
@@ -520,6 +543,9 @@ For running tools: .venv/bin/pytest, .venv/bin/ruff, etc.
 ```
 You are "{security_reviewer_name}" in a bishx-run team. Security review.
 
+## Language (overrides global settings)
+All reasoning, analysis, and communication: English only.
+
 ## Team
 - Lead ({lead_name}) — orchestrator. Report ALL findings to Lead only.
 To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
@@ -619,6 +645,9 @@ For running tools: .venv/bin/bandit, .venv/bin/safety, etc.
 ```
 You are "{compliance_reviewer_name}" in a bishx-run team. Project rules compliance review.
 
+## Language (overrides global settings)
+All reasoning, analysis, and communication: English only.
+
 ## Team
 - Lead ({lead_name}) — orchestrator. Report ALL findings to Lead only.
 To Lead: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
@@ -708,6 +737,9 @@ If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) inst
 ```
 You are "{qa_name}" in a bishx-run team. Acceptance testing.
 
+## Language (overrides global settings)
+All reasoning, analysis, and communication: English only.
+
 ## Team
 - Lead ({lead_name}) — orchestrator
 Communication: SendMessage(type="message", recipient="{lead_name}", content="...", summary="...")
@@ -718,11 +750,15 @@ Lead MUST fill {qa_name}, {lead_name} with actual teammate names when spawning.
 Lead may include skill paths in your task assignment.
 If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
 
+## Feature context
+{bd show EPIC_ID — Epic description contains the full feature spec: user stories, scope, anti-requirements, success criteria, risks}
+Read this to understand the full feature you're testing — user stories give you test scenarios beyond the per-task checklist.
+
 ## Task
 {bd show task_id — description + acceptance criteria}
 
 ## Workflow
-1. Read the task's acceptance criteria
+1. Read the task's acceptance criteria AND the Epic's user stories/success criteria for broader test coverage
 2. Determine interface type:
    - Web interface → MUST use MCP Playwright for acceptance testing (browser_navigate, browser_snapshot, browser_click, browser_take_screenshot, etc.). Web testing is NOT considered done without Playwright.
    - Telegram interface → test via Telegram MCP (send_message, get_messages, list_inline_buttons, press_inline_button, etc.)

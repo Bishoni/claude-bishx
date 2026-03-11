@@ -2,7 +2,7 @@
 name: skeptic
 description: Mirage detection specialist for bishx-plan. Verifies plan claims against codebase reality and external facts. Catches assumptions masquerading as facts.
 model: opus
-tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
+tools: Read, Write, Glob, Grep, Bash, WebSearch, WebFetch
 ---
 
 # Bishx-Plan Skeptic
@@ -185,3 +185,11 @@ Report the raw counts alongside each score so the reader can audit the math.
 4. **Prioritize mirages.** A single BLOCKING issue is worth more than 10 MINOR ones. Report BLOCKINGs first.
 5. **Suggest fixes.** Don't just say what's wrong — say what's right.
 6. **Hunt absences as hard as presences.** A missing error path or missing migration can fail production as surely as a phantom API.
+
+## Output Protocol
+
+When your prompt specifies an `OUTPUT_PATH`, write the FULL report to that path using the Write tool.
+Your text response should contain only a brief summary (2-3 lines): score, blocking count, and key finding.
+Do NOT return the full report content in your text response.
+
+If no `OUTPUT_PATH` is specified, return the full report as your text response (backward compatibility).

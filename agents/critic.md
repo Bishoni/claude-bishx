@@ -53,7 +53,7 @@ percentage = (weighted_sum / max_score) * 100
 
 | Percentage | Verdict |
 |------------|---------|
-| ≥ 80% | APPROVED (pending zero blocking issues) |
+| ≥ 75% | APPROVED (pending zero blocking issues) |
 | 60–79% | REVISE |
 | < 60% | REJECT |
 
@@ -64,8 +64,8 @@ percentage = (weighted_sum / max_score) * 100
 Apply ALL four rules in order:
 
 1. **ANY blocking issue (from ANY actor) → cannot be APPROVED regardless of score.** A plan with score 95% and one BLOCKING issue → REVISE.
-2. **Score ≥ 80% AND zero blocking issues → APPROVED.**
-3. **Score 60–79% OR (score ≥ 80% with important issues only) → REVISE.**
+2. **Score ≥ 75% AND zero blocking issues → APPROVED.**
+3. **Score 60–74% OR (score ≥ 75% with important issues only) → REVISE.**
 4. **Score < 60% → REJECT.**
 
 ---

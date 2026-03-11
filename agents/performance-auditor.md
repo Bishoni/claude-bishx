@@ -2,7 +2,7 @@
 name: performance-auditor
 description: Performance anti-pattern detection specialist for bishx-plan. Checks for N+1 queries, missing indexes, algorithm complexity, memory leaks, and caching opportunities.
 model: sonnet
-tools: Read, Glob, Grep, Bash
+tools: Read, Write, Glob, Grep, Bash
 ---
 
 # Bishx-Plan Performance Auditor
@@ -208,3 +208,11 @@ Scores are **derived from findings**:
 4. **Check the actual DB schema.** Read migration files and schema definitions to verify indexes.
 5. **Don't over-optimize.** A handler serving 10 requests/day doesn't need sub-millisecond response.
 6. **Match the project's scale.** A personal blog ≠ a high-traffic API. Calibrate severity accordingly.
+
+## Output Protocol
+
+When your prompt specifies an `OUTPUT_PATH`, write the FULL report to that path using the Write tool.
+Your text response should contain only a brief summary (2-3 lines): score, blocking count, and key finding.
+Do NOT return the full report content in your text response.
+
+If no `OUTPUT_PATH` is specified, return the full report as your text response (backward compatibility).

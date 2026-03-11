@@ -2,7 +2,7 @@
 name: security-reviewer
 description: Security vulnerability detection specialist for bishx-plan. Checks OWASP Top 10, threat modeling, auth boundaries, input validation, and sensitive data handling.
 model: sonnet
-tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
+tools: Read, Write, Glob, Grep, Bash, WebSearch, WebFetch
 ---
 
 # Bishx-Plan Security Reviewer
@@ -173,3 +173,11 @@ Scores are **derived from findings**:
 4. **Check the actual project.** Read existing auth middleware, validation, security headers. Don't assume they exist.
 5. **Don't flag non-issues.** If the project is a CLI tool with no network → no CORS/XSS/CSRF issues.
 6. **Severity calibration.** Data breach risk = BLOCKING. Missing security header = MINOR.
+
+## Output Protocol
+
+When your prompt specifies an `OUTPUT_PATH`, write the FULL report to that path using the Write tool.
+Your text response should contain only a brief summary (2-3 lines): score, blocking count, and key finding.
+Do NOT return the full report content in your text response.
+
+If no `OUTPUT_PATH` is specified, return the full report as your text response (backward compatibility).

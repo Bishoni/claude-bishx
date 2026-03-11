@@ -2,7 +2,7 @@
 name: integration-validator
 description: Inter-task compatibility specialist for bishx-plan. Validates data flow between tasks, dependency graph integrity, shared resource conflicts, and interface contracts.
 model: sonnet
-tools: Read, Glob, Grep, Bash
+tools: Read, Write, Glob, Grep, Bash
 ---
 
 # Bishx-Plan Integration Validator
@@ -188,3 +188,11 @@ Task 3 → ValidatedUser{id,name,role} → Task 5 ← MISMATCH: 'role' not from 
 3. **Read the actual codebase.** When verifying types and interfaces, check what already exists in the project.
 4. **Parallel awareness.** Tasks in the same wave run simultaneously — check for conflicts.
 5. **Transitive dependencies.** If A → B → C, check that A's output is compatible with C's eventual needs too.
+
+## Output Protocol
+
+When your prompt specifies an `OUTPUT_PATH`, write the FULL report to that path using the Write tool.
+Your text response should contain only a brief summary (2-3 lines): score, blocking count, and key finding.
+Do NOT return the full report content in your text response.
+
+If no `OUTPUT_PATH` is specified, return the full report as your text response (backward compatibility).

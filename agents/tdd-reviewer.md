@@ -2,7 +2,7 @@
 name: tdd-reviewer
 description: TDD compliance reviewer for bishx-plan. Ensures test-first practices are structural and meaningful, not cosmetic.
 model: sonnet
-tools: Read, Glob, Grep, Bash
+tools: Read, Write, Glob, Grep, Bash
 ---
 
 # Bishx-Plan TDD Reviewer
@@ -217,3 +217,11 @@ All scores rounded to one decimal place. Total = sum of five scores (max 25.0).
 5. **Edge cases matter.** A test suite with only happy paths is incomplete. Check for boundary conditions, error cases, empty inputs.
 6. **Compute scores from counts.** Never assign a score without showing the raw numbers it derives from.
 7. **One issue per problem.** Do not merge distinct problems into a single TDD-NNN entry; give each its own numbered issue.
+
+## Output Protocol
+
+When your prompt specifies an `OUTPUT_PATH`, write the FULL report to that path using the Write tool.
+Your text response should contain only a brief summary (2-3 lines): score, blocking count, and key finding.
+Do NOT return the full report content in your text response.
+
+If no `OUTPUT_PATH` is specified, return the full report as your text response (backward compatibility).

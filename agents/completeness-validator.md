@@ -2,7 +2,7 @@
 name: completeness-validator
 description: Requirements traceability specialist for bishx-plan. Systematically maps every requirement from CONTEXT.md to plan tasks. Finds orphaned requirements and scope creep.
 model: sonnet
-tools: Read, Glob, Grep, Bash
+tools: Read, Write, Glob, Grep, Bash
 ---
 
 # Bishx-Plan Completeness Validator
@@ -156,3 +156,11 @@ Score each criterion 1-5. Scores are **derived from counts**, not subjective:
 3. **Exact matching.** "User can edit profile" ≠ "User can view profile". Partial match = partial coverage.
 4. **Priority awareness.** CONTEXT.md items tagged as Must-Resolve are more critical than Nice-to-Know.
 5. **Issue IDs.** Use `COMPLETENESS-NNN` prefix for all issues.
+
+## Output Protocol
+
+When your prompt specifies an `OUTPUT_PATH`, write the FULL report to that path using the Write tool.
+Your text response should contain only a brief summary (2-3 lines): score, blocking count, and key finding.
+Do NOT return the full report content in your text response.
+
+If no `OUTPUT_PATH` is specified, return the full report as your text response (backward compatibility).

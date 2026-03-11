@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use for complex features needing bulletproof plans. Automated 10-actor verification pipeline (Researcher → Planner → [Skeptic + TDD + Completeness + Integration + Security* + Performance*] → Critic → Dry-Run) that iterates up to 10 times until the Critic approves (≥80%), producing a one-shot-ready plan.
+description: Use for complex features needing bulletproof plans. Automated 10-actor verification pipeline (Researcher → Planner → [Skeptic + TDD + Completeness + Integration + Security* + Performance*] → Critic) that iterates up to 10 times until the Critic approves (≥75%), producing a one-shot-ready plan.
 ---
 
 # Bishx-Plan: Automated Iterative Planning
@@ -10,15 +10,15 @@ You are now operating as the Bishx-Plan orchestrator. You drive a 10-actor verif
 ## Pipeline Overview
 
 ```
-Interview → Research → [Planner → Parallel Review → Critic → Dry-Run?] ×N → Final Plan
-                        \_______________________________________________/
+Interview → Research → [Planner → Parallel Review → Critic] ×N → Final Plan
+                        \_____________________________________/
                               Pipeline loop (max 10 iterations)
 ```
 
 ```
                                   ┌─ Skeptic (opus)
                                   ├─ TDD Reviewer (sonnet)
-Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet)     ] ──→ Critic (opus) ──→ Dry-Run (opus)
+Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet)     ] ──→ Critic (opus)
                                   ├─ Integration (sonnet)
                                   ├─ Security* (sonnet)
                                   └─ Performance* (sonnet)
@@ -35,9 +35,9 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet)     ] ─�
 - **Security Reviewer** (sonnet, conditional): Threat modeling, OWASP Top 10, auth boundaries
 - **Performance Auditor** (sonnet, conditional): N+1 queries, complexity, caching, resource usage
 - **Critic** (opus): Final quality gate with weighted scoring and cross-validated ceilings
-- **Dry-Run Simulator** (opus): Simulates executing first 3 tasks with zero context beyond the plan
+- **Dry-Run Simulator** (opus, opt-in via `+dry-run`): Simulates executing first 3 tasks with zero context beyond the plan
 
-**The loop continues until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run passes, or 10 iterations are reached.**
+**The loop continues until the Critic scores ≥75% with zero blocking issues (APPROVED), or 10 iterations are reached.**
 
 ## Session Directory
 
@@ -101,7 +101,11 @@ When bishx-plan is invoked:
    - Read `.gitignore` (create if doesn't exist)
    - Append `.bishx-plan/` if not already present
 
-5. **Initialize state.json** (at `{SESSION}/state.json`):
+5. **Parse flags from task description:**
+   - If task contains `+dry-run` → set `dry_run_enabled: true` in state.json (enables Dry-Run Simulator after Critic APPROVED)
+   - Remove parsed flags from the task description before storing it
+
+6. **Initialize state.json** (at `{SESSION}/state.json`):
    ```json
    {
      "active": true,
@@ -111,6 +115,7 @@ When bishx-plan is invoked:
      "iteration": 1,
      "max_iterations": 10,
      "tdd_enabled": true,
+     "dry_run_enabled": false,
      "phase": "interview",
      "complexity_tier": "",
      "interview_round": 0,
@@ -523,16 +528,17 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet) ───�
 
 ### Sub-Phase 3a: Planner
 
-1. Read `{SESSION}/CONTEXT.md` and `{SESSION}/RESEARCH.md`
-2. If revision: also read ALL feedback from prior iteration
-3. Spawn planner:
+1. Update state.json: `phase` → `"pipeline"`, `pipeline_actor` → `"planner"`, `agent_pending` → `true`
+2. Read `{SESSION}/CONTEXT.md` and `{SESSION}/RESEARCH.md`
+3. If revision: also read ALL feedback from prior iteration
+4. Spawn planner:
    ```
    Task(subagent_type="bishx:planner", model="opus", prompt=<context + research + feedback>)
    ```
-4. Create `{SESSION}/iterations/NN/`
-5. Write output to `{SESSION}/iterations/NN/PLAN.md`
-6. Update state.json: `phase` → `"pipeline"`, `pipeline_actor` → `"planner"`
-7. Emit `<bishx-plan-done>`
+5. When planner completes: set `agent_pending` → `false` in state.json
+6. Create `{SESSION}/iterations/NN/`
+7. Write output to `{SESSION}/iterations/NN/PLAN.md`
+8. Emit `<bishx-plan-done>`
 
 ### Sub-Phase 3b: Parallel Review
 
@@ -557,24 +563,36 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet) ───�
 **Fallback:** If a subagent type is unavailable, read the agent file from `agents/` and inline its instructions as a prompt prefix.
 
 **Launch pattern:**
+
+Each agent receives `OUTPUT_PATH` so it writes the report to disk itself. This prevents context compaction from losing results.
+
 ```
 # Launch ALL in parallel (single response, multiple Task calls)
-Task(subagent_type="bishx:skeptic", model="opus", prompt=<PLAN + CONTEXT>)
-Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt=<PLAN>)
-Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt=<PLAN + CONTEXT>)
-Task(subagent_type="bishx:integration-validator", model="sonnet", prompt=<PLAN>)
+# Prepend OUTPUT_PATH to each prompt — agents write reports to disk via Write tool
+Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/SKEPTIC-REPORT.md\n\n" + <PLAN + CONTEXT>)
+Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/TDD-REPORT.md\n\n" + <PLAN>)
+Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/COMPLETENESS-REPORT.md\n\n" + <PLAN + CONTEXT>)
+Task(subagent_type="bishx:integration-validator", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/INTEGRATION-REPORT.md\n\n" + <PLAN>)
 # Conditional:
-Task(subagent_type="bishx:security-reviewer", model="sonnet", prompt=<PLAN + CONTEXT>)
-Task(subagent_type="bishx:performance-auditor", model="sonnet", prompt=<PLAN>)
+Task(subagent_type="bishx:security-reviewer", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/SECURITY-REPORT.md\n\n" + <PLAN + CONTEXT>)
+Task(subagent_type="bishx:performance-auditor", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/PERFORMANCE-REPORT.md\n\n" + <PLAN>)
 ```
 
-All outputs go to `{SESSION}/iterations/NN/`.
+Agents write full reports to disk. Text responses contain only brief summaries (score + blocking count).
+
+Before launching parallel actors:
+- Update state.json: `pipeline_actor` → `"parallel-review"`, `agent_pending` → `true`
 
 After ALL parallel actors complete:
-- Update state.json: `pipeline_actor` → `"parallel-review"`
+- Verify all expected report files exist: `Glob("{SESSION}/iterations/NN/*-REPORT.md")`
+- If any expected report is missing — warn user, do NOT proceed to Critic
+- Set `agent_pending` → `false` in state.json
 - Emit `<bishx-plan-done>`
 
 ### Sub-Phase 3c: Critic
+
+Before spawning critic:
+- Update state.json: `pipeline_actor` → `"critic"`, `agent_pending` → `true`
 
 1. Read ALL files from `{SESSION}/iterations/NN/`:
    - `PLAN.md`
@@ -594,20 +612,28 @@ After ALL parallel actors complete:
 3. Write TWO files to `{SESSION}/iterations/NN/`:
    - `CRITIC-REPORT.md` — evaluation report with verdict
    - `VERIFIED_ITEMS.md` — regression baseline for the next iteration
-4. Parse verdict, score, flags from output
-5. Update state.json: `pipeline_actor` → `"critic"`, `critic_verdict`, `scores_history`, `flags`
-6. Emit `<bishx-plan-done>`
+4. When critic completes: set `agent_pending` → `false` in state.json
+5. Parse verdict, score, flags from output
+6. Update state.json: `critic_verdict`, `scores_history`, `flags`
+7. Emit `<bishx-plan-done>`
 
 ### After Critic
 
 The hook reads the verdict from state.json and routes:
 
 **Score thresholds (percentage-based):**
-- **APPROVED (≥80%)** AND zero blocking issues → Phase 3d (Dry-Run) or Phase 4 (Finalize)
-- **REVISE (60-79%)** OR (≥80% with blocking issues) → Increment iteration, planner gets structured Action Items
+- **APPROVED (≥75%)** AND zero blocking issues → Phase 3d (Dry-Run) if `+dry-run` flag was set, otherwise Phase 4 (Finalize)
+- **REVISE (60-74%)** OR (≥75% with blocking issues) → Increment iteration, planner gets structured Action Items
 - **REJECT (<60%)** → Always re-research (a plan scoring this low needs new data), then planner with all feedback
 
-### Sub-Phase 3d: Dry-Run Simulation (only after APPROVED)
+### Sub-Phase 3d: Dry-Run Simulation (opt-in, only with `+dry-run` flag)
+
+**This phase is SKIPPED by default.** It only runs if the user included `+dry-run` in their task description. If skipped, APPROVED verdict from Critic goes directly to Phase 4 (Finalize).
+
+When enabled (`dry_run_enabled: true` in state.json):
+
+Before spawning simulator:
+- Update state.json: `phase` → `"dry-run"`, `agent_pending` → `true`
 
 1. Read the approved plan from `{SESSION}/iterations/NN/PLAN.md`
 2. Spawn simulator:
@@ -615,12 +641,13 @@ The hook reads the verdict from state.json and routes:
    Task(subagent_type="bishx:dry-run-simulator", model="opus", prompt=<PLAN.md only — no other context>)
    ```
 3. Write output to `{SESSION}/iterations/NN/DRYRUN-REPORT.md`
-4. Parse verdict: PASS / FAIL / WARN
+4. When simulator completes: set `agent_pending` → `false` in state.json
+5. Parse verdict: PASS / FAIL / WARN
    - **PASS** → Proceed to Phase 4 (Finalize)
    - **FAIL** → Downgrade to REVISE, add DRYRUN issues to feedback, re-enter planner
    - **WARN** → Proceed to Finalize with warnings noted
-5. Update state.json accordingly
-6. Emit `<bishx-plan-done>`
+6. Update state.json accordingly
+7. Emit `<bishx-plan-done>`
 
 ### Special Flags
 - `NEEDS_RE_RESEARCH`: Triggers researcher re-run with targeted RESEARCH-REQ-NNN items
@@ -643,7 +670,7 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
 - Seen in 2 iterations → severity +1 (MINOR→IMPORTANT, IMPORTANT→BLOCKING)
 - Seen in 3+ iterations → BLOCKING + flag NEEDS_HUMAN_INPUT
 
-## Phase 4: Finalize (triggered when Critic approves + Dry-Run passes)
+## Phase 4: Finalize (triggered when Critic approves; or after Dry-Run passes if `+dry-run` enabled)
 
 1. Read the approved plan from `{SESSION}/iterations/NN/PLAN.md`
 2. Read the Critic report from `{SESSION}/iterations/NN/CRITIC-REPORT.md`
@@ -703,6 +730,7 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
   "iteration": 1,
   "max_iterations": 10,
   "tdd_enabled": true,
+  "dry_run_enabled": false,
   "complexity_tier": "trivial|small|medium|large|epic",
   "phase": "interview|research|pipeline|dry-run|finalize|complete|max_iterations",
   "interview_round": 0,
@@ -736,6 +764,7 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
   "issue_registry": [
     {"id": "SKEPTIC-001", "severity": "BLOCKING", "status": "OPEN", "seen_in_iterations": [1]}
   ],
+  "agent_pending": false,
   "flags": [],
   "detected_skills": [],
   "project_profile": {
@@ -845,11 +874,12 @@ This is saved to `~/.bishx/feedback/` and read by Researcher in future sessions 
 
 1. **NEVER skip a required actor.** Every iteration runs Planner + all always-on reviewers + Critic. Conditional actors run based on Project Profile.
 2. **ALWAYS update state.json before emitting signals.** The hook depends on this.
-3. **ALWAYS pass file contents in Task prompts.** Subagents cannot read the orchestrator's files on their own.
+3. **ALWAYS pass file contents in Task prompts.** Subagents cannot read the orchestrator's files on their own. Reviewers write their own reports to disk via OUTPUT_PATH protocol — main agent does NOT re-write them, only verifies files exist.
 4. **Keep context compact.** Each actor gets what it needs, nothing more. CONTEXT.md + PLAN.md for reviewers. All reports for Critic.
 5. **Respect the human.** During interview, wait for real answers. Don't auto-answer gray areas.
 6. **Parallel when possible.** Launch ALL parallel reviewers in a SINGLE response with multiple Task calls.
-7. **Track progress.** After EVERY phase, output a status line:
+7. **ALWAYS set `agent_pending: true` in state.json BEFORE spawning any background agent, and `agent_pending: false` AFTER the agent completes.** The Stop hook checks this field to avoid interfering with running agents.
+8. **Track progress.** After EVERY phase, output a status line:
 
 ```
 [bishx-plan] Phase | Status message
