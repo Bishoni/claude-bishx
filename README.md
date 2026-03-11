@@ -101,7 +101,7 @@ Interview → Research → Planner →  ├─ Completeness (sonnet)  → Critic
                                     * = conditional
 ```
 
-Iterates up to 10 times until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run Simulator passes. Complexity gate adapts the pipeline: TRIVIAL skips review, SMALL runs lite review, MEDIUM+ runs full parallel review. Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
+Iterates up to 10 times until the Critic scores ≥75% with zero blocking issues (APPROVED) and the Dry-Run Simulator passes. Complexity gate adapts the pipeline: TRIVIAL skips review, SMALL runs lite review, MEDIUM+ runs full parallel review. Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
 
 ### Execution pipeline
 
