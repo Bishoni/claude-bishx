@@ -20,7 +20,7 @@ ln -s ~/.claude/plugins/bishx ~/.claude/plugins/marketplaces/local/plugins/bishx
 
 # Register in cache
 mkdir -p ~/.claude/plugins/cache/local/bishx
-ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/2.0.0
+ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/2.3.1
 ```
 
 Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
@@ -50,11 +50,12 @@ Run `init` when starting a project from scratch. Run `init-sync` once there's co
 | Command | Description |
 |---------|-------------|
 | `/bishx:prompt <idea>` | Turn a raw idea into a structured planning prompt |
-| `/bishx:plan <prompt>` | Run 10-actor verification pipeline with parallel review topology to produce a bulletproof implementation plan |
+| `/bishx:plan <prompt>` | Run 10-actor verification pipeline (up to 10 iterations) with parallel review topology to produce a bulletproof implementation plan |
 | `/bishx:bd` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
-| `/bishx:run full` | Full cycle: development + code review + QA testing |
-| `/bishx:run dev` | Fast cycle: development + code review only |
+| `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
+| `/bishx:run --mode full` | Full cycle: development + code review + QA testing (default) |
+| `/bishx:run --mode dev` | Fast cycle: development + code review only |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs unit/integration/E2E/security/performance tests, reports bugs to bd |
 
 ### Analysis
@@ -100,7 +101,7 @@ Interview → Research → Planner →  ├─ Completeness (sonnet)  → Critic
                                     * = conditional
 ```
 
-Iterates up to 5 times until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run Simulator passes. Complexity gate adapts the pipeline: TRIVIAL skips review, SMALL runs lite review, MEDIUM+ runs full parallel review. Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
+Iterates up to 10 times until the Critic scores ≥80% with zero blocking issues (APPROVED) and the Dry-Run Simulator passes. Complexity gate adapts the pipeline: TRIVIAL skips review, SMALL runs lite review, MEDIUM+ runs full parallel review. Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
 
 ### Execution pipeline
 
@@ -123,6 +124,8 @@ Each reviewer has formal severity definitions (CRITICAL/MAJOR/MINOR/INFO), HIGH 
 Review approach inspired by the [Anthropic code-review plugin](https://github.com/anthropics/claude-code/tree/main/plugins/code-review).
 
 Lead performs centralized skill lookup from the skill library before each task, passing relevant skill paths to each agent (≤1500 lines budget per agent).
+
+All teammates (Dev, Reviewers, QA) reason and communicate in English for better analytical quality. Lead communicates with the user in the user's language.
 
 Run modes:
 - `full` — Dev → Review → QA (default)
