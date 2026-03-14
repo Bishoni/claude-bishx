@@ -38,8 +38,6 @@ Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
 | `/bishx:plan-to-bd-tasks` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
-| `/bishx:run --mode full` | Full cycle: development + code review + QA testing (default) |
-| `/bishx:run --mode dev` | Fast cycle: development + code review only |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs all test types, reports bugs to bd |
 
 ## Architecture
