@@ -20,7 +20,7 @@ ln -s ~/.claude/plugins/bishx ~/.claude/plugins/marketplaces/local/plugins/bishx
 
 # Register in cache
 mkdir -p ~/.claude/plugins/cache/local/bishx
-ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/2.3.1
+ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/2.4.0
 ```
 
 Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
@@ -32,58 +32,15 @@ Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
 
 ## Commands
 
-### Setup
-
 | Command | Description |
 |---------|-------------|
-| `/bishx:init` | Scaffold `CLAUDE.md` and `AGENTS.md` templates in project root |
-| `/bishx:init-sync` | Scan existing codebase and populate both files with real data |
-
-Run `init` when starting a project from scratch. Run `init-sync` once there's code to analyze.
-
-### Development Cycle
-
-```
-/bishx:prompt → /bishx:plan → /bishx:bd → /bishx:run
-```
-
-| Command | Description |
-|---------|-------------|
-| `/bishx:prompt <idea>` | Turn a raw idea into a structured planning prompt |
-| `/bishx:plan <prompt>` | Run 10-actor verification pipeline (up to 10 iterations) with parallel review topology to produce a bulletproof implementation plan |
-| `/bishx:bd` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
+| `/bishx:plan <prompt>` | Run 10-actor verification pipeline (up to 10 iterations) to produce a bulletproof implementation plan |
+| `/bishx:plan-to-bd-tasks` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
 | `/bishx:run --mode full` | Full cycle: development + code review + QA testing (default) |
 | `/bishx:run --mode dev` | Fast cycle: development + code review only |
-| `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs unit/integration/E2E/security/performance tests, reports bugs to bd |
-
-### Analysis
-
-| Command | Description |
-|---------|-------------|
-| `/bishx:idea` | Analyze the project and suggest new features sorted by ROI |
-| `/bishx:idea <focus>` | Narrow suggestions to a specific area (e.g., `marketing`, `monetization`, `ux`) |
-| `/bishx:polish` | Find technical improvements: performance, security, code quality, architecture |
-| `/bishx:polish <focus>` | Narrow analysis to a specific area (e.g., `security`, `performance`, `dx`) |
-
-### Management
-
-| Command | Description |
-|---------|-------------|
-| `/bishx:status` | Check current development session status |
-| `/bishx:cancel` | Stop the active development session |
-
-### Testing
-
-| Command | Description |
-|---------|-------------|
-| `/bishx:test` | Deep system testing — auto-detects stack, discovers components, runs all test types, reports bugs to bd with reproduction steps |
-| `/bishx:test <types>` | Run specific test types (e.g., `unit`, `integration`, `e2e`, `security`, `performance`) |
-
-### Hooks
-
-The plugin registers a **Stop hook** that keeps planning and execution sessions alive. It prevents Claude Code from exiting mid-pipeline by intercepting stop signals and re-injecting continuation prompts. The hook also cleans up tmux windows left behind by exited teammate agents.
+| `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs all test types, reports bugs to bd |
 
 ## Architecture
 
@@ -149,25 +106,16 @@ bishx/
 │   ├── skeptic.md                # Mirage detector — presence + absence mirages
 │   └── tdd-reviewer.md           # TDD compliance with quantitative metrics
 ├── commands/                     # Slash command definitions
-│   ├── cancel.md
-│   ├── idea.md
-│   ├── init.md
-│   ├── init-sync.md
 │   ├── plan.md
-│   ├── plan-to-bd-tasks.md       # /bishx:bd implementation
-│   ├── polish.md
-│   ├── prompt.md
+│   ├── plan-to-bd-tasks.md
 │   ├── run.md
-│   ├── status.md
 │   └── test.md
 ├── hooks/                        # Stop hooks for session persistence
 │   ├── discover-skills.sh        # Auto-detect relevant skills for planning
 │   ├── hooks.json
 │   └── stop-hook.sh              # Keeps plan/run sessions alive
 └── skills/                       # Detailed skill instructions
-    ├── init-sync/SKILL.md
     ├── plan/SKILL.md
-    ├── prompt/SKILL.md
     ├── run/SKILL.md
     └── test/
         ├── SKILL.md
