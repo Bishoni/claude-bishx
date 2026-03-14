@@ -8,22 +8,17 @@ idea → prompt → plan → tasks → code → test
 
 ## Installation
 
-### Quick install
-
 ```bash
-# Clone into Claude Code plugins directory
 git clone https://github.com/Bishoni/claude-bishx.git ~/.claude/plugins/bishx
-
-# Register in local marketplace
-mkdir -p ~/.claude/plugins/marketplaces/local/plugins
-ln -s ~/.claude/plugins/bishx ~/.claude/plugins/marketplaces/local/plugins/bishx
-
-# Register in cache
-mkdir -p ~/.claude/plugins/cache/local/bishx
-ln -s ~/.claude/plugins/bishx ~/.claude/plugins/cache/local/bishx/2.4.0
 ```
 
-Restart Claude Code. Type `/bishx:` to verify commands appear in autocomplete.
+Then launch Claude Code with the plugin:
+
+```bash
+claude --plugin-dir ~/.claude/plugins/bishx
+```
+
+Type `/bishx:` to verify commands appear in autocomplete.
 
 ### Prerequisites
 
