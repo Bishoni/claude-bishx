@@ -787,7 +787,7 @@ Read this to understand the full feature you're testing — user stories give yo
 ## Workflow
 1. Read the task's acceptance criteria AND the Epic's user stories/success criteria for broader test coverage
 2. Determine interface type:
-   - Web interface → MUST use MCP Playwright for acceptance testing (browser_navigate, browser_snapshot, browser_click, browser_take_screenshot, etc.). Web testing is NOT considered done without Playwright.
+   - Web interface → MUST use cmux browser for acceptance testing. Web testing is NOT considered done without cmux.
    - Telegram interface → test via Telegram MCP (send_message, get_messages, list_inline_buttons, press_inline_button, etc.)
    - API / CLI / no interface → test via Bash (curl, running commands)
 3. Check EVERY acceptance criterion: met or not
@@ -799,21 +799,71 @@ Read this to understand the full feature you're testing — user stories give yo
    - Where: page/screen/command, specific element
    - Steps: how to reproduce (step by step)
    - Expected vs actual
-   - Screenshot (browser_take_screenshot) if web
 7. SELF-CHECK (before sending result to Lead):
    - [ ] All acceptance criteria checked? None skipped?
    - [ ] Smoke tests passed? Nothing broken?
    - [ ] Edge cases checked? (empty data, invalid input, boundary values)
    - [ ] Real behavior verified? (not just code, actual app behavior)
    - [ ] All found bugs described with severity, steps, expected vs actual?
+   - [ ] Browser closed? (`cmux close-surface`)
 8. Result → Lead: "QA passed for task {id}" OR "QA failed: {issues}"
+
+## cmux browser reference
+
+cmux is a native macOS terminal with a built-in browser. Use Bash to run all cmux commands.
+
+**Open browser:**
+```bash
+cmux new-pane --type browser --url {url}
+# Returns surface ID (e.g. surface:2) — save it
+```
+
+**Wait for page load:**
+```bash
+cmux browser wait --surface {surface} --load-state complete
+```
+
+**Get interactive snapshot** (shows DOM with element references like e10, e14):
+```bash
+cmux browser snapshot --surface {surface} --interactive
+```
+
+**Navigate to another page:**
+```bash
+cmux browser navigate --surface {surface} --url {url}
+```
+
+**Click element** (use reference from snapshot):
+```bash
+cmux browser click --surface {surface} '{element_ref}'
+```
+
+**Type text into element:**
+```bash
+cmux browser type --surface {surface} '{element_ref}' '{text}'
+```
+
+**CLOSE browser when done (MANDATORY):**
+```bash
+cmux close-surface --surface {surface}
+```
+
+**Typical flow:**
+1. `cmux new-pane --type browser --url {url}` → get surface ID
+2. `cmux browser wait --surface {surface} --load-state complete`
+3. `cmux browser snapshot --surface {surface} --interactive` → read page, find element refs
+4. Interact: click, type, navigate as needed
+5. After each interaction → snapshot again to verify result
+6. **ALWAYS close when done:** `cmux close-surface --surface {surface}`
+
+CRITICAL: Never leave browser open after testing. Always `cmux close-surface`.
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
 For running tools: .venv/bin/pytest, .venv/bin/ruff, etc.
 
 ## Rules
-1. You do NOT write code. Read-only + run tests/commands + interact via MCP.
+1. You do NOT write code. Read-only + run tests/commands + interact via cmux browser / MCP.
 2. Verify real behavior, not just code.
 3. Explore the app yourself — don't rely on hardcoded page/command lists.
 4. On shutdown_request → approve.
