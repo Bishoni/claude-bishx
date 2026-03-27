@@ -39,6 +39,11 @@ Task(subagent_type="general-purpose", team_name="bishx-run-{project}", name="<ro
 8. **Infinite loop.** `<bishx-complete>` only when ALL tasks are done or user said stop.
 9. **Dev does not touch bd or git push.** Dev implements and notifies Lead. Lead commits, pushes, closes in bd.
 10. **Track progress with Claude Code tasks.** For each bd task, create internal tasks (TaskCreate) and update them (TaskUpdate) as you go. This gives the user visibility into what step you're on.
+11. **CRITICAL: Update `waiting_for` BEFORE every wait.** Before waiting for ANY teammate response, you MUST update `waiting_for` in state.json. The stop hook uses this field to allow you to idle. If you forget — the hook will block your stop and you'll loop forever printing "Жду". Use this exact command:
+    ```bash
+    jq '.waiting_for = "<role>"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+    ```
+    Where `<role>` is `"dev"`, `"reviewers"`, or `"qa"`. Clear it with `""` when you receive the response and resume work.
 
 ## Spawn syntax
 
@@ -196,13 +201,23 @@ LOOP:
      Otherwise → spawn new dev. Update state: teammates.dev = "{new_dev_name}".
      When spawning dev, fill `{bd show EPIC_ID}` in the "Feature context" section of dev's prompt with actual `bd show {state.epic_id}` output.
 
-  5. UPDATE STATE: set waiting_for="dev" in state.json.
+  5. UPDATE STATE — run this BEFORE waiting:
+     ```bash
+     jq '.waiting_for = "dev"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
      WAIT dev → "Done, files: [...]". Real SendMessage. Do NOT proceed until you receive it.
+     When dev responds, CLEAR waiting_for:
+     ```bash
+     jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
      TaskUpdate → "[{id}] Dev: implement" → completed.
 
   6. MANDATORY REVIEW — DO NOT SKIP.
      TaskUpdate → "[{id}] Review code" → in_progress.
-     UPDATE STATE: set waiting_for="" in state.json.
+     CLEAR waiting_for (dev responded):
+     ```bash
+     jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
 
      6a. PREPARE REVIEW CONTEXT (Lead does this, no extra agent needed):
          Compose a review brief from information Lead already has:
@@ -222,7 +237,10 @@ LOOP:
          Pass review brief + which files changed in all three prompts.
          Update state: teammates.bug_reviewer, teammates.security_reviewer, teammates.compliance_reviewer.
 
-  7. UPDATE STATE: set waiting_for="reviewers" in state.json.
+  7. UPDATE STATE — run this BEFORE waiting:
+     ```bash
+     jq '.waiting_for = "reviewers"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
      WAIT for ALL THREE reviewers to report to Lead.
      Each reviewer sends Lead a list of issues (or "no issues found").
      Once ALL THREE replied:
@@ -270,7 +288,10 @@ LOOP:
      TaskUpdate → "[{id}] Review code" → completed.
 
   8. TaskUpdate → "[{id}] Commit & push" → in_progress.
-     UPDATE STATE: set waiting_for="" in state.json.
+     CLEAR waiting_for (reviewers responded):
+     ```bash
+     jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
      LEAD COMMITS AND PUSHES (only after review passed):
      git add <files> && git commit -m "<message>" && git push
      NEVER add .beads/ or .omc/ files — they are gitignored. Only add project source files.
@@ -284,7 +305,10 @@ LOOP:
      Otherwise → spawn new qa. Update state: teammates.qa = "{new_qa_name}".
      When spawning qa, fill `{bd show EPIC_ID}` in the "Feature context" section of qa's prompt with actual `bd show {state.epic_id}` output.
 
-  10. UPDATE STATE: set waiting_for="qa" in state.json.
+  10. UPDATE STATE — run this BEFORE waiting:
+      ```bash
+      jq '.waiting_for = "qa"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+      ```
       WAIT qa → "QA passed" / "QA failed". Real SendMessage.
       Do NOT proceed until you receive it.
 
@@ -310,7 +334,10 @@ LOOP:
 
   11. TaskUpdate → "[{id}] Close in bd" → in_progress.
       BD CLOSE (only after QA passed):
-      UPDATE STATE: set waiting_for="" in state.json.
+      CLEAR waiting_for (QA responded):
+      ```bash
+      jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+      ```
       bd close {id} && bd sync
       Shutdown reviewers (if still alive):
         SendMessage(type="shutdown_request", recipient=state.teammates.bug_reviewer)

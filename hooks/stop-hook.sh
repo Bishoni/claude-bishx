@@ -641,6 +641,10 @@ if [[ -f "$RUN_STATE" ]]; then
       # Lead is WAITING for a teammate → allow stop, teammate's SendMessage
       # will be delivered automatically as a new turn
       exit 0
+    elif [[ ${#LAST_OUTPUT} -lt 15 ]] && echo "$LAST_OUTPUT" | grep -qiE "^[[:space:]]*(Жду|Ожидаю|Waiting for|На месте)[[:space:].!]*$"; then
+      # Lead's ENTIRE output is just a short waiting phrase (not part of longer work message)
+      # Forgot to set waiting_for in state → allow exit to prevent infinite loop
+      exit 0
     elif [[ -z "$CURRENT_TASK" || "$CURRENT_TASK" == "null" ]]; then
       # No current task → IDLE mode, allow exit
       exit 0
@@ -655,6 +659,275 @@ if [[ -f "$RUN_STATE" ]]; then
 fi
 
 # ============================================================
-# Neither mode active → allow exit
+# MODE 3: bishx-site (website audit)
+# ============================================================
+
+SITE_ACTIVE_FILE=".bishx-site/active"
+SITE_SESSION_DIR=""
+SITE_STATE=""
+if [[ -f "$SITE_ACTIVE_FILE" ]]; then
+  SITE_SESSION_NAME=$(cat "$SITE_ACTIVE_FILE" 2>/dev/null | tr -d '[:space:]')
+  if [[ -n "$SITE_SESSION_NAME" ]]; then
+    SITE_SESSION_DIR=".bishx-site/$SITE_SESSION_NAME"
+    SITE_STATE="$SITE_SESSION_DIR/state.json"
+  fi
+fi
+
+if [[ -n "$SITE_STATE" && -f "$SITE_STATE" ]]; then
+  SITE_ACTIVE=$(jq -r '.active // false' "$SITE_STATE" 2>/dev/null || echo "false")
+  if [[ "$SITE_ACTIVE" == "true" ]]; then
+
+    SITE_PHASE=$(jq -r '.phase // ""' "$SITE_STATE" 2>/dev/null || echo "")
+    MODULES_TOTAL=$(jq -r '.modules_total // 0' "$SITE_STATE" 2>/dev/null || echo "0")
+    SITE_WAVE=$(jq -r '.wave // 0' "$SITE_STATE" 2>/dev/null || echo "0")
+
+    # Terminal state — allow exit immediately
+    if [[ "$SITE_PHASE" == "complete" || "$SITE_PHASE" == "cancelled" ]]; then
+      rm -f "$SITE_ACTIVE_FILE" 2>/dev/null || true
+      exit 0
+    fi
+
+    # Signal: complete — allow exit, clean up (checked BEFORE agent_pending
+    # so that a complete signal from a finishing agent is never missed)
+    if echo "$LAST_OUTPUT" | grep -q "<bishx-site-complete>"; then
+      jq '.active = false | .phase = "complete"' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+      rm -f "$SITE_ACTIVE_FILE"
+      exit 0
+    fi
+
+    # Agent is running — don't interfere
+    SITE_AGENT_PENDING=$(jq -r '.agent_pending // false' "$SITE_STATE" 2>/dev/null || echo "false")
+    if [[ "$SITE_AGENT_PENDING" == "true" ]]; then
+      exit 0
+    fi
+
+    # Waiting for user input (ASK phase) — allow exit
+    SITE_WAITING=$(jq -r '.waiting_for // ""' "$SITE_STATE" 2>/dev/null || echo "")
+    if [[ -n "$SITE_WAITING" && "$SITE_WAITING" != "null" ]]; then
+      exit 0
+    fi
+
+    # Signal: phase-done — route based on state
+    if echo "$LAST_OUTPUT" | grep -q "<bishx-site-done>"; then
+      SITE_PHASE=$(jq -r '.phase // ""' "$SITE_STATE" 2>/dev/null || echo "")
+      SITE_WAVE=$(jq -r '.wave // 0' "$SITE_STATE" 2>/dev/null || echo "0")
+
+      case "$SITE_PHASE" in
+
+        "discover")
+          # Discovery complete → transition to ASK phase
+          jq '.phase = "ask" | .waiting_for = "scope_selection"' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+          read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Discovery complete. Now run ASK phase — present scope confirmation to user.
+
+1. Phase is now 'ask' (set by stop hook). Present AskUserQuestion with scope options (see SKILL.md Phase 0.5)
+2. Read \`${SITE_SESSION_DIR}/discovery.json\` to get page count and business type
+3. Present AskUserQuestion with scope options
+4. After user responds: update \`selected_modules\` in state.json, set \`modules_total\` to len(selected_modules), set \`waiting_for\` to \`""\`. Then emit \`<bishx-site-done>\`
+HEREDOC
+          ;;
+
+        "ask")
+          # ASK complete, user selected scope → transition to Execute Wave 1
+          jq '.phase = "execute" | .wave = 1 | .agent_pending = true | .waiting_for = ""' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+          # Read selected_modules from state to build dynamic module list
+          SELECTED_MODULES=$(jq -r '.selected_modules // [] | join(",")' "$SITE_STATE" 2>/dev/null || echo "")
+
+          read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Scope selection complete. Now run EXECUTE phase — Wave 1.
+
+Phase is now 'execute' (set by stop hook). Read selected_modules from \`${SITE_SESSION_DIR}/state.json\` and launch Wave 1.
+Selected modules: ${SELECTED_MODULES}
+
+**Wave 1 (parallel, Tier A — no browser):**
+1. Read \`${SITE_SESSION_DIR}/discovery.json\` and \`${SITE_SESSION_DIR}/sitemap.md\`
+2. Load relevant skill-library skills (see SKILL.md)
+3. Spawn Tier A modules (all selected_modules EXCEPT accessibility and performance) IN PARALLEL:
+   - Each: \`Task(subagent_type="oh-my-claudecode:executor-high", model="opus")\`
+   - Each reads its type file from \`~/.claude/plugins/bishx/skills/site/types/{module}.md\`
+   - Each receives: sitemap, discovery data, snapshot content, skill-library context, finding template, scoring rules
+   - Each writes to \`${SITE_SESSION_DIR}/{module}-report.md\`
+4. When all Tier A reports exist → set \`agent_pending\` → \`false\`
+5. Emit \`<bishx-site-done>\`
+HEREDOC
+          ;;
+
+        "execute")
+          # Count reports dynamically from selected_modules in state.json
+          SELECTED_JSON=$(jq -r '.selected_modules // []' "$SITE_STATE" 2>/dev/null || echo "[]")
+          TIER_A_EXPECTED=0
+          TIER_A_DONE=0
+          TIER_B_MODULES=""
+          TIER_B_EXPECTED=0
+          TIER_B_DONE=0
+          SITE_REPORTS_FOUND=0
+
+          # Iterate selected_modules: Tier B = accessibility, performance; rest = Tier A
+          while IFS= read -r mod; do
+            if [[ "$mod" == "accessibility" || "$mod" == "performance" ]]; then
+              ((TIER_B_EXPECTED++)) || true
+              TIER_B_MODULES="${TIER_B_MODULES} ${mod}"
+              [[ -f "$SITE_SESSION_DIR/${mod}-report.md" ]] && grep -q "BISHX-SITE-REPORT-COMPLETE" "$SITE_SESSION_DIR/${mod}-report.md" 2>/dev/null && ((TIER_B_DONE++)) || true
+            else
+              ((TIER_A_EXPECTED++)) || true
+              [[ -f "$SITE_SESSION_DIR/${mod}-report.md" ]] && grep -q "BISHX-SITE-REPORT-COMPLETE" "$SITE_SESSION_DIR/${mod}-report.md" 2>/dev/null && ((TIER_A_DONE++)) || true
+            fi
+          done < <(echo "$SELECTED_JSON" | jq -r '.[]' 2>/dev/null)
+
+          # Enforce SKILL.md ordering: accessibility before performance
+          TIER_B_ORDERED=""
+          [[ "$TIER_B_MODULES" == *accessibility* ]] && TIER_B_ORDERED="accessibility"
+          [[ "$TIER_B_MODULES" == *performance* ]] && TIER_B_ORDERED="${TIER_B_ORDERED:+$TIER_B_ORDERED }performance"
+          TIER_B_MODULES="${TIER_B_ORDERED:-$TIER_B_MODULES}"
+
+          SITE_REPORTS_FOUND=$((TIER_A_DONE + TIER_B_DONE))
+
+          if [[ $SITE_REPORTS_FOUND -ge $MODULES_TOTAL ]]; then
+            # All done → synthesize
+            jq '.phase = "synthesize" | .agent_pending = false' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+            read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: All ${MODULES_TOTAL} audit reports complete. Now run SYNTHESIZE phase.
+
+1. Phase is now 'synthesize' (set by stop hook).
+2. Read ALL report files from \`${SITE_SESSION_DIR}/\`
+3. Extract module scores (each report ends with "Module Score" section)
+4. Calculate weighted total using weights from \`${SITE_SESSION_DIR}/discovery.json\`
+5. Check for previous audit run in \`.bishx-site/\` — if exists, calculate diff
+6. Aggregate and deduplicate all findings across modules
+7. Cross-reference related findings
+8. Write \`${SITE_SESSION_DIR}/scores.json\`
+9. Emit \`<bishx-site-done>\`
+HEREDOC
+
+          elif [[ "$SITE_WAVE" == "1" && $TIER_A_DONE -ge $TIER_A_EXPECTED ]]; then
+            # Wave 1 done — check if Wave 2 is needed
+            if [[ $TIER_B_EXPECTED -gt 0 ]]; then
+              # Tier B modules selected → start Wave 2 (sequential browser modules)
+              jq '.wave = 2 | .agent_pending = true' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+              read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Wave 1 complete (${TIER_A_DONE}/${TIER_A_EXPECTED} Tier A reports). Now run Wave 2 — browser modules SEQUENTIALLY.
+
+1. Wave 2 is now active with agent_pending=true (set by stop hook).
+2. Run Tier B modules ONE AT A TIME (exclusive Playwright browser access):$(
+  for bmod in $TIER_B_MODULES; do
+    echo "
+   - ${bmod}: \`Task(subagent_type=\"oh-my-claudecode:executor-high\", model=\"opus\", prompt=<${bmod} instructions + sitemap + finding template + scoring rules>)\`
+     Wait for completion → \`${SITE_SESSION_DIR}/${bmod}-report.md\`"
+  done)
+3. Set \`agent_pending\` → \`false\`
+4. Emit \`<bishx-site-done>\`
+
+IMPORTANT: Run these modules ONE AT A TIME. They need exclusive Playwright browser access.
+HEREDOC
+            else
+              # No Tier B modules selected → all done, go to synthesize
+              jq '.phase = "synthesize" | .agent_pending = false' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+              read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Wave 1 complete (${TIER_A_DONE}/${TIER_A_EXPECTED} Tier A reports). No browser modules selected — all reports done. Proceed to SYNTHESIZE.
+
+1. Phase is now 'synthesize' (set by stop hook).
+2. Read ALL report files from \`${SITE_SESSION_DIR}/\`
+3. Extract module scores, calculate weighted total, write \`${SITE_SESSION_DIR}/scores.json\`
+4. Emit \`<bishx-site-done>\`
+HEREDOC
+            fi
+
+          elif [[ "$SITE_WAVE" == "1" ]]; then
+            read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Wave 1 in progress. ${TIER_A_DONE}/${TIER_A_EXPECTED} Tier A reports ready. Wait for remaining agents. When all ${TIER_A_EXPECTED} Tier A reports exist, emit \`<bishx-site-done>\`.
+HEREDOC
+
+          else
+            # Wave 2 in progress — show status for each Tier B module
+            TIER_B_STATUS=""
+            for bmod in $TIER_B_MODULES; do
+              if [[ -f "$SITE_SESSION_DIR/${bmod}-report.md" ]]; then
+                TIER_B_STATUS="${TIER_B_STATUS} ${bmod}:done"
+              else
+                TIER_B_STATUS="${TIER_B_STATUS} ${bmod}:pending"
+              fi
+            done
+            read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Wave 2 in progress.${TIER_B_STATUS}. Run remaining browser module(s) sequentially. When all complete, emit \`<bishx-site-done>\`.
+HEREDOC
+          fi
+          ;;
+
+        "synthesize")
+          jq '.phase = "report"' "$SITE_STATE" > "$SITE_STATE.tmp" && mv "$SITE_STATE.tmp" "$SITE_STATE"
+          read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Synthesis complete. Now generate the final REPORT.
+
+1. Phase is now 'report' (set by stop hook).
+2. Read \`${SITE_SESSION_DIR}/scores.json\` and ALL report files
+3. Generate \`${SITE_SESSION_DIR}/SITE-REVIEW.md\` following the format in SKILL.md Phase 3
+4. Every finding uses the finding template (required sections: 1-3, 6-7, 10; optional: 4-5, 8-9)
+5. Sort findings by priority: critical → high → medium → low
+6. Include positive highlights and quick wins summary
+7. Add skill-library cross-reference table at the end
+8. Present summary to user with overall score and grade
+9. Emit \`<bishx-site-complete>\`
+HEREDOC
+          ;;
+
+        "report")
+          # Report phase emits <bishx-site-complete>, not <bishx-site-done>
+          # If we get here, Claude emitted wrong signal — redirect
+          read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Report phase should emit \`<bishx-site-complete>\`, not \`<bishx-site-done>\`.
+Continue writing SITE-REVIEW.md. When fully complete, emit \`<bishx-site-complete>\` to end the session.
+HEREDOC
+          ;;
+
+        *)
+          read -r -d '' PROMPT << HEREDOC || true
+BISHX-SITE: Unknown phase "${SITE_PHASE}". Read \`${SITE_SESSION_DIR}/state.json\` and continue from current phase. If corrupted, ask user for guidance.
+HEREDOC
+          ;;
+      esac
+
+      jq -n --arg reason "$PROMPT" '{"decision": "block", "reason": $reason}'
+      exit 0
+    fi
+
+    # No signal detected — nudge based on phase
+    case "$SITE_PHASE" in
+      "discover")
+        PROMPT="BISHX-SITE: Continue Discovery. Crawl remaining pages via Playwright. When complete, emit <bishx-site-done>."
+        ;;
+      "ask")
+        # User input needed — allow exit
+        exit 0
+        ;;
+      "execute")
+        SITE_REPORTS_FOUND=0
+        SELECTED_JSON=$(jq -r '.selected_modules // []' "$SITE_STATE" 2>/dev/null || echo "[]")
+        while IFS= read -r mod; do
+          [[ -n "$mod" && -f "$SITE_SESSION_DIR/${mod}-report.md" ]] && grep -q "BISHX-SITE-REPORT-COMPLETE" "$SITE_SESSION_DIR/${mod}-report.md" 2>/dev/null && ((SITE_REPORTS_FOUND++)) || true
+        done < <(echo "$SELECTED_JSON" | jq -r '.[]' 2>/dev/null)
+        if [[ $SITE_REPORTS_FOUND -ge $MODULES_TOTAL ]]; then
+          PROMPT="BISHX-SITE: All ${MODULES_TOTAL} reports exist. Proceed to synthesize. Emit <bishx-site-done>."
+        else
+          PROMPT="BISHX-SITE: ${SITE_REPORTS_FOUND}/${MODULES_TOTAL} reports ready. Continue execute phase. When all reports complete, emit <bishx-site-done>."
+        fi
+        ;;
+      "synthesize")
+        PROMPT="BISHX-SITE: Continue synthesis. Calculate scores, check for previous run diff. When done, emit <bishx-site-done>."
+        ;;
+      "report")
+        PROMPT="BISHX-SITE: Continue generating SITE-REVIEW.md. When complete, emit <bishx-site-complete>."
+        ;;
+      *)
+        PROMPT="BISHX-SITE: Read ${SITE_SESSION_DIR}/state.json and continue."
+        ;;
+    esac
+
+    jq -n --arg reason "$PROMPT" '{"decision": "block", "reason": $reason}'
+    exit 0
+  fi
+fi
+
+# ============================================================
+# No active mode → allow exit
 # ============================================================
 exit 0

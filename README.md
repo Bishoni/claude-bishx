@@ -3,7 +3,7 @@
 Full dev lifecycle plugin for [Claude Code](https://claude.com/product/claude-code). Takes you from a raw idea to shipped code through a structured pipeline of AI agents.
 
 ```
-idea → prompt → plan → tasks → code → test
+idea → prompt → plan → tasks → code → test → site audit
 ```
 
 ## Installation
@@ -34,6 +34,7 @@ Type `/bishx:` to verify commands appear in autocomplete.
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs all test types, reports bugs to bd |
+| `/bishx:site <url>` | Full website audit — crawls up to 100 pages via Playwright, analyzes UX/UI, SEO, accessibility, performance, conversion |
 
 ## Architecture
 
@@ -77,6 +78,26 @@ Lead performs centralized skill lookup from the skill library before each task, 
 
 All teammates (Dev, Reviewers, QA) reason and communicate in English for better analytical quality. Lead communicates with the user in the user's language.
 
+### Site audit
+
+```
+/bishx:site https://example.com
+```
+
+Autonomous website audit powered by Playwright. Crawls up to 100 pages and produces a design critique document (not code) with actionable recommendations.
+
+Evaluates through a Human-First lens across five layers:
+
+1. **FOR WHOM** — is the right person being served?
+2. **WHAT** — is the right content shown?
+3. **HOW** — is the presentation right?
+4. **FEELING** — how does the page feel to use?
+5. **BEHAVIOR** — how does the site respond?
+
+Audit covers 9 modules: UX design, accessibility, SEO (technical + content), performance, marketing content, brand consistency, information architecture, and conversion optimization.
+
+Use when you need a comprehensive quality review of a live website before launch, after a redesign, or as a periodic health check.
+
 Run modes:
 - `full` — Dev → Review → QA (default)
 - `dev` — Dev → Review only (faster)
@@ -102,6 +123,7 @@ bishx/
 │   ├── plan.md
 │   ├── plan-to-bd-tasks.md
 │   ├── run.md
+│   ├── site.md
 │   └── test.md
 ├── hooks/                        # Stop hooks for session persistence
 │   ├── discover-skills.sh        # Auto-detect relevant skills for planning
@@ -110,6 +132,18 @@ bishx/
 └── skills/                       # Detailed skill instructions
     ├── plan/SKILL.md
     ├── run/SKILL.md
+    ├── site/
+    │   ├── SKILL.md              # Full audit framework
+    │   └── types/                # 9 audit modules
+    │       ├── accessibility.md
+    │       ├── brand-consistency.md
+    │       ├── conversion.md
+    │       ├── information-architecture.md
+    │       ├── marketing-content.md
+    │       ├── performance.md
+    │       ├── seo-content.md
+    │       ├── seo-technical.md
+    │       └── ux-design.md
     └── test/
         ├── SKILL.md
         └── types/                # Modular test type definitions
