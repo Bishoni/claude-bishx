@@ -20,22 +20,27 @@ You are performing accessibility (a11y) testing of "{profile.project}".
 
 Web URL: {profile.services.web_url}
 
-MANDATORY: Use cmux browser for all checks:
-- `cmux new-pane --type browser --url {url}` → returns surface ID (store as $SURFACE)
-- `cmux browser wait --surface $SURFACE --load-state complete` — wait for page load
-- `cmux browser navigate --surface $SURFACE --url {url}` — navigate to pages
-- `cmux browser snapshot --surface $SURFACE --interactive` — returns the accessibility tree (primary tool for a11y)
-- `cmux browser click --surface $SURFACE '{ref}'` — interact with elements
-- `cmux read-screen --surface $SURFACE` — capture visual state
-- `cmux close-surface --surface $SURFACE` — MANDATORY when done
+MANDATORY: Use cmux browser for all checks. cmux is a native macOS app — all commands run via Bash, not MCP tools.
 
-Note: `browser_press_key` is not directly available in cmux browser. Use `cmux browser type --surface $SURFACE '{ref}' ''` for text input, or click to trigger navigation. Keyboard navigation testing is limited.
+```bash
+SURFACE=$(cmux browser open {url})                              # open browser, save surface ID
+cmux browser --surface $SURFACE wait --load-state complete      # wait for page load
+cmux browser --surface $SURFACE goto {url}                      # navigate to page
+cmux browser --surface $SURFACE snapshot -i                     # accessibility tree + element refs (primary a11y tool)
+cmux browser --surface $SURFACE click {ref}                     # interact (prefer refs from snapshot -i)
+cmux browser --surface $SURFACE press Tab                       # keyboard navigation
+cmux browser --surface $SURFACE press Escape                    # close modals/dropdowns
+cmux browser --surface $SURFACE press Enter                     # activate elements
+cmux browser --surface $SURFACE screenshot --out /tmp/a11y.png  # capture visual state
+cmux browser --surface $SURFACE eval '{js}'                     # run accessibility checks via JS
+cmux close-surface --surface $SURFACE                           # MANDATORY when done
+```
 
 Workflow:
 1. **Accessibility tree audit:**
    For each page/route:
-   - `cmux browser navigate --surface $SURFACE --url {url}` to the page
-   - `cmux browser snapshot --surface $SURFACE --interactive` to get the accessibility tree
+   - `cmux browser --surface $SURFACE goto {url}` to navigate
+   - `cmux browser --surface $SURFACE snapshot -i` to get the accessibility tree
    - Check every interactive element has:
      - Accessible name (label, aria-label, aria-labelledby)
      - Correct role (button, link, textbox, combobox, etc.)
@@ -43,11 +48,11 @@ Workflow:
    - Flag: unnamed buttons, images without alt text, inputs without labels, generic divs used as buttons
 
 2. **Keyboard navigation:**
-   - Note: `browser_press_key` is not available in cmux browser. Test keyboard navigation by clicking elements in sequence and observing focus via snapshot.
-   - Check snapshot for focus indicators and logical element order
-   - Test activation: `cmux browser click --surface $SURFACE '{ref}'` and verify result
-   - Can you close modals/dropdowns? Check for close button refs in snapshot
-   - Are there keyboard traps? Look for modal/overlay patterns in snapshot with no close mechanism
+   - Use `cmux browser --surface $SURFACE press Tab` to navigate through focusable elements
+   - After each Tab, run `snapshot -i` to observe which element has focus
+   - Test activation with `cmux browser --surface $SURFACE press Enter` or `press Space`
+   - Close modals/dropdowns: `cmux browser --surface $SURFACE press Escape`
+   - Check for keyboard traps: if Tab cycles within a modal with no Escape, that is a trap
 
 3. **Semantic HTML:**
    - Read frontend source for:

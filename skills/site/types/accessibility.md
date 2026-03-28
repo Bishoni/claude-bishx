@@ -1,10 +1,23 @@
 # Audit Module: Accessibility
 
 **Browser access:** Yes. This is a Tier B (live browser) module with EXCLUSIVE browser access.
-Use cmux browser tools (`cmux browser navigate`, `cmux browser snapshot`, `cmux browser click`, `cmux read-screen`) for all checks.
-You have exclusive browser access — no other agent is using cmux browser while you run.
+Use cmux browser commands for all checks. You have exclusive browser access — no other agent is using cmux browser while you run.
 
-**Prerequisites:** cmux browser (`cmux new-pane --type browser`, `cmux browser navigate`, `cmux browser snapshot`, `cmux browser click`, `cmux browser resize`, `cmux read-screen`, `cmux close-surface`)
+**cmux is a native macOS terminal application — not an MCP server.** All commands run via **Bash**:
+```bash
+cmux browser --surface {s} <subcommand> [args]
+```
+
+**Prerequisites:** cmux installed and a browser surface already open (Lead provides surface ID as `{surface}`).
+Key commands used in this module:
+- `cmux browser --surface {s} goto {url}` — navigate
+- `cmux browser --surface {s} snapshot -i` — interactive snapshot with element refs (e1, e2, ...)
+- `cmux browser --surface {s} screenshot --out /path/file.png` — screenshot
+- `cmux browser --surface {s} click {ref}` — click element
+- `cmux browser --surface {s} press {key}` — keyboard (Tab, Enter, Escape, Space)
+- `cmux browser --surface {s} resize --width {w} --height {h}` — viewport resize
+- `cmux browser --surface {s} eval '{js}'` — run JavaScript
+- `cmux close-surface --surface {s}` — MANDATORY when done
 
 > **Foundational Principle:** This module's checks are concrete applications of the Human-First Evaluation Principle. Accessibility is the most fundamental layer of human-first design: every visitor must be able to access the content regardless of ability, device, or situation. Technical WCAG compliance is the minimum — true accessibility means the experience WORKS for every human. Technical checks that PASS but violate the principle are still findings. See SKILL.md "FOUNDATIONAL PRINCIPLE" section.
 
@@ -45,22 +58,22 @@ You are a WCAG 2.1 AA accessibility auditor. You evaluate every page of the webs
 **Full keyboard navigation testing:** On up to **15 key pages** (selected by Discovery: homepage, pages with forms, pricing, depth-1 nav pages, high-traffic pages).
 
 For each of these 15 pages:
-- Tab through the entire page
-- Check focus visibility with screenshots
+- Tab through the entire page using `cmux browser --surface {s} press Tab`
+- Check focus visibility with `cmux browser --surface {s} screenshot --out {path}`
 - Test Enter/Space activation
 - Test Escape on modals/dropdowns
 - Full interactive keyboard audit
 
-**Automated snapshot-based checks:** On **ALL pages** listed in the sitemap.
+**Automated checks:** On **ALL pages** listed in the sitemap.
 
-Note: `browser_evaluate` (JS execution) is not available in cmux browser. All checks below use `cmux browser snapshot --surface {surface} --interactive` to analyze the accessibility tree.
+Use `cmux browser --surface {s} snapshot -i` for accessibility tree analysis and `cmux browser --surface {s} eval '{js}'` for precise DOM queries.
 
 For every page (including those beyond the 15):
-- Run accessible name extraction via snapshot analysis
+- Run accessible name extraction via snapshot analysis and eval
 - Run landmark detection via snapshot
-- Run color contrast assessment via `cmux read-screen`
+- Run color contrast assessment via eval (getComputedStyle)
 - Run image alt text audit via snapshot
-- Run touch target size assessment via snapshot (at mobile viewport)
+- Run touch target size assessment via eval (getBoundingClientRect) at mobile viewport
 
 This ensures: critical keyboard issues are caught on key pages, automated compliance checks cover the entire site.
 
@@ -70,7 +83,7 @@ This ensures: critical keyboard issues are caught on key pages, automated compli
 
 ### 1. Accessible Names (Focus: 15% of audit effort)
 
-Every interactive element MUST have an accessible name. Use `cmux browser snapshot --surface {surface} --interactive` which reveals the accessibility tree.
+Every interactive element MUST have an accessible name. Use `cmux browser --surface {s} snapshot -i` which reveals the accessibility tree.
 
 **Check every page for:**
 - Buttons: must have visible text, `aria-label`, or `aria-labelledby`. FAIL for any `button` without a name.
@@ -79,29 +92,28 @@ Every interactive element MUST have an accessible name. Use `cmux browser snapsh
 - Images: meaningful images must have alt text. WARN if `img` elements have no accessible name in snapshot.
 - Icons used as buttons: FAIL if icon-only controls have no text alternative.
 
-**Automated check via JS snapshot analysis (note: `browser_evaluate` is not available in cmux browser — use `cmux browser snapshot --surface {surface} --interactive` and analyze the tree, or use `curl` with JS APIs if accessible):**
-```javascript
-(() => {
+**Automated check via eval:**
+```bash
+cmux browser --surface {s} eval '(() => {
   const issues = [];
-  document.querySelectorAll('button').forEach((btn, i) => {
-    const name = btn.textContent.trim() || btn.getAttribute('aria-label') || btn.getAttribute('aria-labelledby');
-    if (!name) issues.push({ type: 'button', index: i, html: btn.outerHTML.slice(0, 100) });
+  document.querySelectorAll("button").forEach((btn, i) => {
+    const name = btn.textContent.trim() || btn.getAttribute("aria-label") || btn.getAttribute("aria-labelledby");
+    if (!name) issues.push({ type: "button", index: i, html: btn.outerHTML.slice(0, 100) });
   });
-  document.querySelectorAll('input, select, textarea').forEach((input, i) => {
+  document.querySelectorAll("input, select, textarea").forEach((input, i) => {
     const id = input.id;
-    const hasLabel = id && document.querySelector(`label[for="${id}"]`);
-    const hasAria = input.getAttribute('aria-label') || input.getAttribute('aria-labelledby');
-    const hasPlaceholder = input.getAttribute('placeholder');
-    if (!hasLabel && !hasAria && !input.closest('label')) {
-      issues.push({ type: 'input', index: i, inputType: input.type, name: input.name, hasPlaceholder: !!hasPlaceholder });
+    const hasLabel = id && document.querySelector("label[for=" + id + "]");
+    const hasAria = input.getAttribute("aria-label") || input.getAttribute("aria-labelledby");
+    if (!hasLabel && !hasAria && !input.closest("label")) {
+      issues.push({ type: "input", index: i, inputType: input.type, name: input.name });
     }
   });
-  document.querySelectorAll('a').forEach((link, i) => {
-    const name = link.textContent.trim() || link.getAttribute('aria-label');
-    if (!name) issues.push({ type: 'link', index: i, href: link.href?.slice(0, 80) });
+  document.querySelectorAll("a").forEach((link, i) => {
+    const name = link.textContent.trim() || link.getAttribute("aria-label");
+    if (!name) issues.push({ type: "link", index: i, href: link.href?.slice(0, 80) });
   });
-  return { total: issues.length, issues: issues.slice(0, 50) };
-})()
+  return JSON.stringify({ total: issues.length, issues: issues.slice(0, 50) });
+})()'
 ```
 
 - FAIL threshold: any unnamed interactive element
@@ -112,33 +124,32 @@ Every interactive element MUST have an accessible name. Use `cmux browser snapsh
 This is the most critical accessibility criterion. Test thoroughly on EVERY page.
 
 **Tab order testing:**
-- Send Tab key using `cmux browser type --surface {surface} '{ref}' ''` or navigate via click to focus elements
-- After each interaction, use `cmux browser snapshot --surface {surface} --interactive` to check which element has focus
+- Send Tab key: `cmux browser --surface {s} press Tab`
+- After each Tab, take snapshot: `cmux browser --surface {s} snapshot -i` to check which element has focus
 - Is the order logical (top-to-bottom, left-to-right)?
 - Can you reach EVERY interactive element?
 - FAIL if any interactive element is unreachable by keyboard
 
 **Focus visibility:**
-- After each focus interaction, use `cmux read-screen --surface {surface}` to verify focus indicator is visible
+- After each Tab, take screenshot: `cmux browser --surface {s} screenshot --out {path}` to verify focus indicator is visible
 - Is there a visible focus ring/outline/highlight?
 - FAIL if focus is invisible (custom CSS removed outline with no replacement)
 - WARN if focus indicator is subtle (thin, low contrast)
 
 **Keyboard traps:**
 - Navigate into every component (modals, dropdowns, date pickers, custom widgets) via click
-- Can you navigate OUT of the component?
+- Can you navigate OUT of the component using Tab/Escape?
 - FAIL for any keyboard trap (focus cycles within a component with no escape)
 
 **Enter/Space activation:**
-- Click buttons and verify they activate
-- Click links and verify they navigate
-- Click checkboxes/radios and verify they toggle
+- Focus elements via Tab, activate with Enter/Space: `cmux browser --surface {s} press Enter`
+- Verify buttons activate, links navigate, checkboxes/radios toggle
 - FAIL if activation doesn't work
 
 **Escape key:**
-- Open modals/dialogs → use `cmux browser type --surface {surface} '{ref}' ''` to send Escape (or click close button)
+- Open modals/dialogs → press Escape: `cmux browser --surface {s} press Escape`
 - Does it close? Does focus return to the triggering element?
-- FAIL if modals don't close on Escape/close trigger
+- FAIL if modals don't close on Escape
 
 **Skip navigation:**
 - Is there a "Skip to content" link as the first Tab stop?
@@ -146,22 +157,22 @@ This is the most critical accessibility criterion. Test thoroughly on EVERY page
 
 ### 3. Semantic HTML (Focus: 15% of audit effort)
 
-Analyze the page structure via `cmux browser snapshot --surface {surface} --interactive` (which reveals roles and landmarks):
+Analyze the page structure via `cmux browser --surface {s} snapshot -i` (which reveals roles and landmarks):
 
 **Note:** Heading hierarchy checks (H1 count, heading level skips, heading outline) are owned by the SEO Technical module. Do NOT duplicate them here. Focus on landmarks, lists, and tables.
 
 **Landmarks:**
-- Check via snapshot analysis (note: `browser_evaluate` is not available — analyze the snapshot tree for landmark elements):
-  ```javascript
-  (() => {
+- Check via eval:
+  ```bash
+  cmux browser --surface {s} eval '(() => {
     const landmarks = [];
-    ['header', 'nav', 'main', 'footer', 'aside', 'section[aria-label]', 'section[aria-labelledby]', '[role="banner"]', '[role="navigation"]', '[role="main"]', '[role="contentinfo"]', '[role="complementary"]', '[role="search"]'].forEach(sel => {
+    ["header", "nav", "main", "footer", "aside", "[role=banner]", "[role=navigation]", "[role=main]", "[role=contentinfo]", "[role=complementary]", "[role=search]"].forEach(sel => {
       document.querySelectorAll(sel).forEach(el => {
-        landmarks.push({ type: sel, label: el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || '' });
+        landmarks.push({ type: sel, label: el.getAttribute("aria-label") || "" });
       });
     });
-    return landmarks;
-  })()
+    return JSON.stringify(landmarks);
+  })()'
   ```
 - FAIL if no `<main>` or `[role="main"]` landmark
 - WARN if no `<nav>` / `[role="navigation"]` landmark
@@ -179,55 +190,47 @@ Analyze the page structure via `cmux browser snapshot --surface {surface} --inte
 
 ### 4. Color Contrast (Focus: 15% of audit effort)
 
-Estimate contrast from visual inspection of the screen:
+Use eval to measure contrast precisely:
 
-**Text contrast:**
-- Use `cmux read-screen --surface {surface}` at each page
-- Visually assess: is body text clearly readable against its background?
+**Text contrast via eval:**
+```bash
+cmux browser --surface {s} eval '(() => {
+  function luminance(r, g, b) {
+    return [r,g,b].reduce((s,c,i) => {
+      c = c/255;
+      c = c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+      return s + c * [0.2126, 0.7152, 0.0722][i];
+    }, 0);
+  }
+  function contrast(l1, l2) { return (Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05); }
+  function parseColor(str) {
+    const m = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    return m ? [+m[1],+m[2],+m[3]] : null;
+  }
+  const issues = [];
+  document.querySelectorAll("p, span, a, li, td, th, label, h1, h2, h3, h4, h5, h6").forEach(el => {
+    const s = getComputedStyle(el);
+    const fg = parseColor(s.color), bg = parseColor(s.backgroundColor);
+    if (fg && bg && bg.some(c=>c>0)) {
+      const r = contrast(luminance(...fg), luminance(...bg));
+      const fs = parseFloat(s.fontSize), bold = parseInt(s.fontWeight) >= 700;
+      const large = fs >= 18 || (fs >= 14 && bold);
+      if (r < (large ? 3 : 4.5))
+        issues.push({ text: el.textContent.trim().slice(0,40), ratio: Math.round(r*100)/100, tag: el.tagName });
+    }
+  });
+  return JSON.stringify({ issueCount: issues.length, sample: issues.slice(0,20) });
+})()'
+```
+
+Also take a screenshot and visually verify findings:
+```bash
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/{page}-contrast-check.png
+```
+
 - WCAG AA thresholds: 4.5:1 for normal text (<18px or <14px bold), 3:1 for large text (≥18px or ≥14px bold)
 - FAIL for text that is clearly low contrast (light gray on white, light text on light backgrounds)
 - Pay special attention to: placeholder text, disabled states, footer text, captions
-
-**Visual contrast spot-check via snapshot (note: `browser_evaluate` is not available in cmux browser — assess contrast from `cmux read-screen` output and snapshot):**
-```javascript
-(() => {
-  function luminance(r, g, b) {
-    const [rs, gs, bs] = [r, g, b].map(c => {
-      c = c / 255;
-      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
-  }
-  function contrast(l1, l2) {
-    const lighter = Math.max(l1, l2);
-    const darker = Math.min(l1, l2);
-    return (lighter + 0.05) / (darker + 0.05);
-  }
-  function parseColor(str) {
-    const m = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-    return m ? [parseInt(m[1]), parseInt(m[2]), parseInt(m[3])] : null;
-  }
-  const issues = [];
-  document.querySelectorAll('p, span, a, li, td, th, label, h1, h2, h3, h4, h5, h6').forEach(el => {
-    const style = getComputedStyle(el);
-    const fg = parseColor(style.color);
-    const bg = parseColor(style.backgroundColor);
-    if (fg && bg && bg.some(c => c > 0)) {
-      const ratio = contrast(luminance(...fg), luminance(...bg));
-      const fontSize = parseFloat(style.fontSize);
-      const isBold = parseInt(style.fontWeight) >= 700;
-      const isLarge = fontSize >= 18 || (fontSize >= 14 && isBold);
-      const threshold = isLarge ? 3 : 4.5;
-      if (ratio < threshold) {
-        issues.push({ text: el.textContent.trim().slice(0, 40), ratio: Math.round(ratio * 100) / 100, threshold, tag: el.tagName });
-      }
-    }
-  });
-  return { issueCount: issues.length, sample: issues.slice(0, 20) };
-})()
-```
-
-- Note: cmux browser does not support JS execution. Use `cmux read-screen` output and snapshot as primary evidence for contrast assessment.
 - FAIL if clearly unreadable text visible in screenshots.
 
 **Information by color alone:**
@@ -241,7 +244,7 @@ Estimate contrast from visual inspection of the screen:
 Test accessibility of content that changes after user interaction:
 
 **After clicks/submits:**
-- Click buttons using `cmux browser click --surface {surface} '{ref}'` that trigger content changes (forms, filters, tabs, accordions)
+- Click buttons using `cmux browser --surface {s} click {ref}` that trigger content changes (forms, filters, tabs, accordions)
 - Does the new content get announced? Check for `aria-live` regions via snapshot analysis
 - WARN if dynamic content changes with no `aria-live` region visible in snapshot
 
@@ -267,7 +270,7 @@ Test accessibility of content that changes after user interaction:
 Check image accessibility on every page:
 
 **Alt text:**
-Use `cmux browser snapshot --surface {surface} --interactive` to analyze the accessibility tree for image elements. The snapshot reveals `alt` text and accessible names for images.
+Use `cmux browser --surface {s} snapshot -i` to analyze the accessibility tree for image elements. The snapshot reveals `alt` text and accessible names for images.
 - FAIL if meaningful images have no `alt` attribute at all
 - Images with `alt=""` are decorative — acceptable if truly decorative
 - WARN if alt text is generic ("image", "photo", "img_001.jpg")
@@ -279,7 +282,14 @@ Use `cmux browser snapshot --surface {surface} --interactive` to analyze the acc
 
 ### 7. Common Interactive Patterns (Focus: 10% of audit effort)
 
-Test established ARIA patterns on every instance found:
+Test established ARIA patterns on every instance found.
+
+Use `cmux browser --surface {s} press {key}` for keyboard testing:
+- Arrow keys: `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`
+- Tab: `Tab`
+- Enter: `Enter`
+- Space: `Space`
+- Escape: `Escape`
 
 **Modals/Dialogs:**
 - Does opening a modal trap focus inside it? (Tab should cycle within modal)
@@ -327,19 +337,30 @@ If CAPTCHA detected on any form:
 
 Test at mobile viewport (375x812):
 
-```
-cmux browser resize --surface {surface} --width 375 --height 812
+```bash
+cmux browser --surface {s} resize --width 375 --height 812
 ```
 
 **Touch target size:**
-Use `cmux browser snapshot --surface {surface} --interactive` at mobile viewport to analyze interactive elements. Visually assess target sizes from `cmux read-screen --surface {surface}`. Note: exact pixel dimensions require JS evaluation which is not available in cmux browser — estimate from snapshot and visual inspection.
+Use eval to measure element bounding boxes at mobile viewport:
+```bash
+cmux browser --surface {s} eval '(() => {
+  const small = [];
+  document.querySelectorAll("a, button, input, select, textarea, [role=button], [role=link]").forEach(el => {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && (r.width < 44 || r.height < 44))
+      small.push({ tag: el.tagName, text: el.textContent.trim().slice(0,30), w: Math.round(r.width), h: Math.round(r.height) });
+  });
+  return JSON.stringify({ count: small.length, items: small.slice(0,20) });
+})()'
+```
 - WCAG 2.1 AA: touch targets SHOULD be ≥ 44x44px
 - WARN for each target smaller than 44x44
 - FAIL if critical interactive elements (nav, CTA, form submit) are < 44x44
 
 **Content reflow at zoom:**
 - CSS zoom is not equivalent to browser zoom for WCAG testing. Note this limitation in the report. Test by checking if content reflows properly at smaller viewport widths as a proxy.
-- Use `cmux browser resize --surface {surface} --width 720 --height 812` (half of 1440 ≈ 200% zoom equivalent) and check if content reflows without horizontal scrolling via `cmux read-screen --surface {surface}`.
+- Use `cmux browser --surface {s} resize --width 720 --height 812` (half of 1440 ≈ 200% zoom equivalent) and screenshot to check if content reflows without horizontal scrolling.
 - WARN if horizontal scrollbar appears or content is clipped at the narrower viewport
 
 **Gesture alternatives:**
@@ -507,10 +528,11 @@ Final: 100 - {X} = {N}
 
 - All report content in English. Technical terms (WCAG, ARIA, AA, FAIL, Tab, Escape, H1) in English.
 - Every finding MUST use the finding template defined in the main SKILL.md. Do NOT use any other template format.
-- Reference screenshots from `{run_dir}/screenshots/` as evidence.
+- Reference screenshots from `{run_dir}/screenshots/` as evidence (`cmux browser --surface {s} screenshot --out {path}`).
 - Do not inspect source code. Test only through cmux browser interaction.
 - Do not visit external websites. Only test the target site.
 - Keyboard testing is THE most important part. Spend the most time on it.
-- JS execution (`browser_evaluate`) is not available in cmux browser — rely on `cmux browser snapshot --surface {surface} --interactive` analysis and `cmux read-screen` for all checks.
-- Restore viewport to desktop (1440x900) after mobile testing on each page: `cmux browser resize --surface {surface} --width 1440 --height 900`.
-- Always close the browser surface when done: `cmux close-surface --surface {surface}`.
+- Use `cmux browser --surface {s} eval '{js}'` for DOM queries. Use `cmux browser --surface {s} snapshot -i` for accessibility tree. Use `cmux browser --surface {s} screenshot --out {path}` for visual evidence.
+- CSS selectors with embedded quotes fail on the command line. Prefer element refs (e1, e2, ...) from snapshot -i output over CSS selectors.
+- Restore viewport to desktop (1440x900) after mobile testing on each page: `cmux browser --surface {s} resize --width 1440 --height 900`.
+- Always close the browser surface when done: `cmux close-surface --surface {s}`.

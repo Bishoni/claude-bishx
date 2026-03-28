@@ -810,53 +810,150 @@ Read this to understand the full feature you're testing — user stories give yo
 
 ## cmux browser reference
 
-cmux is a native macOS terminal with a built-in browser. Use Bash to run all cmux commands.
+cmux is a **native macOS terminal application** with a built-in WebKit browser. All cmux commands are regular shell commands — run them via **Bash**, NOT MCP tools. There is no cmux MCP server.
 
-**Open browser:**
+### Open / Close
+
 ```bash
-cmux new-pane --type browser --url {url}
-# Returns surface ID (e.g. surface:2) — save it
+# Open browser — returns surface ID like "surface:11"
+S=$(cmux browser open {url})
+
+# Close (MANDATORY when done — always close)
+cmux close-surface --surface $S
 ```
 
-**Wait for page load:**
+### Navigation
+
 ```bash
-cmux browser wait --surface {surface} --load-state complete
+cmux browser --surface $S goto {url}
+cmux browser --surface $S back
+cmux browser --surface $S forward
+cmux browser --surface $S reload
 ```
 
-**Get interactive snapshot** (shows DOM with element references like e10, e14):
+### Wait
+
 ```bash
-cmux browser snapshot --surface {surface} --interactive
+cmux browser --surface $S wait --load-state complete
+cmux browser --surface $S wait --selector '{css}'
+cmux browser --surface $S wait --text '{text}'
+cmux browser --surface $S wait --selector '{css}' --timeout-ms 5000
 ```
 
-**Navigate to another page:**
+### DOM Inspection
+
 ```bash
-cmux browser navigate --surface {surface} --url {url}
+# Interactive snapshot — returns element refs (e1, e2, ...) — PREFER refs over CSS selectors
+cmux browser --surface $S snapshot -i
+cmux browser --surface $S snapshot --compact
+cmux browser --surface $S snapshot --selector '{css}'
+cmux browser --surface $S snapshot --max-depth 2
 ```
 
-**Click element** (use reference from snapshot):
+### Interaction (prefer refs from snapshot -i over CSS selectors)
+
 ```bash
-cmux browser click --surface {surface} '{element_ref}'
+cmux browser --surface $S click {ref_or_selector}
+cmux browser --surface $S dblclick {ref_or_selector}
+cmux browser --surface $S hover {ref_or_selector}
+cmux browser --surface $S focus {ref_or_selector}
+cmux browser --surface $S type {ref_or_selector} '{text}'
+cmux browser --surface $S fill {ref_or_selector} '{text}'
+cmux browser --surface $S press {key}              # Enter, Tab, Escape, ArrowDown, etc.
+cmux browser --surface $S keydown {key}
+cmux browser --surface $S keyup {key}
+cmux browser --surface $S select {ref_or_selector} '{value}'
+cmux browser --surface $S check {ref_or_selector}
+cmux browser --surface $S uncheck {ref_or_selector}
+cmux browser --surface $S scroll --dy 300
+cmux browser --surface $S scroll-into-view {ref_or_selector}
 ```
 
-**Type text into element:**
+### JavaScript Execution
+
 ```bash
-cmux browser type --surface {surface} '{element_ref}' '{text}'
+cmux browser --surface $S eval '{javascript}'
+# Example: cmux browser --surface $S eval 'document.title'
 ```
 
-**CLOSE browser when done (MANDATORY):**
+### Screenshots
+
 ```bash
-cmux close-surface --surface {surface}
+cmux browser --surface $S screenshot --out /tmp/screenshot.png
 ```
 
-**Typical flow:**
-1. `cmux new-pane --type browser --url {url}` → get surface ID
-2. `cmux browser wait --surface {surface} --load-state complete`
-3. `cmux browser snapshot --surface {surface} --interactive` → read page, find element refs
-4. Interact: click, type, navigate as needed
-5. After each interaction → snapshot again to verify result
-6. **ALWAYS close when done:** `cmux close-surface --surface {surface}`
+### Get Data
 
-CRITICAL: Never leave browser open after testing. Always `cmux close-surface`.
+```bash
+cmux browser --surface $S get url
+cmux browser --surface $S get title
+cmux browser --surface $S get text '{selector}'    # selector required
+cmux browser --surface $S get html '{selector}'    # selector required (e.g. 'body')
+cmux browser --surface $S get attr '{selector}' '{attr}'
+cmux browser --surface $S get count '{selector}'
+cmux browser --surface $S get value '{selector}'
+cmux browser --surface $S get box '{selector}'
+cmux browser --surface $S get styles '{selector}' '{prop}'
+```
+
+### Find & Visibility
+
+```bash
+cmux browser --surface $S find text '{text}'
+cmux browser --surface $S is visible '{selector}'  # returns 1 or 0
+cmux browser --surface $S highlight '{selector}'
+```
+
+### Console & Errors
+
+```bash
+cmux browser --surface $S console list
+cmux browser --surface $S errors list
+```
+
+### Cookies & Storage
+
+```bash
+cmux browser --surface $S cookies get
+cmux browser --surface $S cookies set {name} {value}
+cmux browser --surface $S cookies clear
+cmux browser --surface $S storage local get
+cmux browser --surface $S storage session get
+```
+
+### Frames, Inject, Dialogs
+
+```bash
+cmux browser --surface $S frame '{selector}'
+cmux browser --surface $S frame main
+cmux browser --surface $S addscript '{js}'
+cmux browser --surface $S addstyle '{css}'
+cmux browser --surface $S dialog accept
+cmux browser --surface $S dialog dismiss
+```
+
+### Typical flow
+
+```bash
+S=$(cmux browser open {url})
+cmux browser --surface $S wait --load-state complete
+cmux browser --surface $S snapshot -i          # read page, get element refs (e1, e2, ...)
+cmux browser --surface $S click e3             # interact via ref
+cmux browser --surface $S wait --load-state complete
+cmux browser --surface $S snapshot -i          # verify result
+cmux browser --surface $S screenshot --out /tmp/result.png
+cmux close-surface --surface $S               # ALWAYS close when done
+```
+
+### Key nuances
+
+1. CSS selectors with embedded quotes FAIL — always prefer element refs (e1, e2) from `snapshot -i`
+2. `get text`/`get html` require a selector argument (minimum `'body'`)
+3. Do `fill` then `snapshot -i` separately — do NOT use `--snapshot-after` with fill (bug: flag parsed as text)
+4. After `goto`, use `wait --load-state complete` + `snapshot -i` separately for reliable results
+5. `read-screen` is for terminal surfaces only — NOT for browser surfaces
+
+CRITICAL: Never leave browser open after testing. Always `cmux close-surface --surface $S`.
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.

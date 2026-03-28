@@ -27,21 +27,32 @@ You are performing exploratory bug hunting on "{profile.project}" web interface.
 Web URL: {profile.services.web_url}
 API URL: {profile.services.api_url}
 
-MANDATORY: Use cmux browser for ALL web testing.
+MANDATORY: Use cmux browser for ALL web testing. cmux is a native macOS app — all commands run via Bash, not MCP tools.
 
-Open browser: `SURFACE=$(cmux new-pane --type browser --url {web_url})`
-Wait for load: `cmux browser wait --surface $SURFACE --load-state complete`
-Close when done: `cmux close-surface --surface $SURFACE`
+```bash
+SURFACE=$(cmux browser open {web_url})                         # open browser, save surface ID
+cmux browser --surface $SURFACE wait --load-state complete     # wait for page load
+cmux browser --surface $SURFACE snapshot -i                    # interactive snapshot with element refs
+cmux browser --surface $SURFACE goto {url}                     # navigate to page
+cmux browser --surface $SURFACE click {ref}                    # click element (prefer refs from snapshot -i)
+cmux browser --surface $SURFACE fill {ref} '{text}'            # fill input
+cmux browser --surface $SURFACE press Enter                    # press key
+cmux browser --surface $SURFACE eval '{js}'                    # execute JavaScript
+cmux browser --surface $SURFACE console list                   # get JS console output
+cmux browser --surface $SURFACE errors list                    # get JS errors
+cmux browser --surface $SURFACE screenshot --out /tmp/bug.png  # screenshot
+cmux close-surface --surface $SURFACE                          # MANDATORY when done
+```
 
 This is NOT scripted flow testing (that's E2E Acceptance). This is **exploratory testing** — you are a tester trying to BREAK the application through creative, unexpected interactions.
 
 Workflow:
 1. **Console errors audit:**
-   Navigate to every page/route using `cmux browser navigate --surface $SURFACE --url {url}`. After each navigation:
-   - Check for JS errors via `cmux read-screen --surface $SURFACE` and `cmux browser snapshot --surface $SURFACE --interactive` (look for error elements)
-   - Note: cmux browser does not expose console API directly — check visible error messages and broken UI states
-   - Record: page URL, visible error indicators
-   - Any visible JS error message = at least P3
+   Navigate to every page/route using `cmux browser --surface $SURFACE goto {url}`. After each navigation:
+   - Check for JS errors via `cmux browser --surface $SURFACE console list` and `cmux browser --surface $SURFACE errors list`
+   - Also run `cmux browser --surface $SURFACE snapshot -i` to look for visible error elements in the DOM
+   - Record: page URL, console errors, visible error indicators
+   - Any JS error = at least P3
 
 2. **Broken links and navigation:**
    For every link and button on every page:

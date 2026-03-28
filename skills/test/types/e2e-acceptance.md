@@ -28,23 +28,31 @@ You are performing E2E acceptance testing of "{profile.project}".
 Web URL: {profile.services.web_url}
 API URL: {profile.services.api_url}
 
-MANDATORY: Use cmux browser for ALL web testing:
-- `SURFACE=$(cmux new-pane --type browser --url {web_url})` — open browser (returns surface ID)
-- `cmux browser wait --surface $SURFACE --load-state complete` — wait for page load
-- `cmux browser navigate --surface $SURFACE --url {url}` — open pages
-- `cmux browser snapshot --surface $SURFACE --interactive` — read page state (accessibility tree)
-- `cmux browser click --surface $SURFACE '{ref}'` — interact with elements
-- `cmux browser type --surface $SURFACE '{ref}' '{text}'` — fill inputs
-- `cmux read-screen --surface $SURFACE` — capture visual state
-- `cmux close-surface --surface $SURFACE` — MANDATORY when done
+MANDATORY: Use cmux browser for ALL web testing. cmux is a native macOS app — all commands run via Bash, not MCP tools.
 
-Note: `browser_select_option` and `browser_press_key` are not available in cmux browser. Use `cmux browser click` on dropdown options, and `cmux browser type` for text input instead.
+```bash
+SURFACE=$(cmux browser open {web_url})                         # open browser, save surface ID
+cmux browser --surface $SURFACE wait --load-state complete     # wait for page load
+cmux browser --surface $SURFACE goto {url}                     # navigate to page
+cmux browser --surface $SURFACE snapshot -i                    # read page state + element refs
+cmux browser --surface $SURFACE click {ref}                    # click (prefer refs from snapshot -i)
+cmux browser --surface $SURFACE fill {ref} '{text}'            # fill input field
+cmux browser --surface $SURFACE type {ref} '{text}'            # type into element
+cmux browser --surface $SURFACE select {ref} '{value}'         # select dropdown option
+cmux browser --surface $SURFACE press Enter                    # submit / confirm
+cmux browser --surface $SURFACE press Tab                      # move focus
+cmux browser --surface $SURFACE press Escape                   # cancel / close modal
+cmux browser --surface $SURFACE screenshot --out /tmp/e2e.png  # capture state
+cmux browser --surface $SURFACE eval '{js}'                    # execute JavaScript
+cmux browser --surface $SURFACE console list                   # check console errors
+cmux close-surface --surface $SURFACE                          # MANDATORY when done
+```
 
 Workflow:
 1. **Smoke test:**
    - Navigate to web_url
    - Page loads without errors
-   - Key elements visible (`cmux browser snapshot --surface $SURFACE --interactive`)
+   - Key elements visible (`cmux browser --surface $SURFACE snapshot -i`)
    - Screenshot baseline
 
 2. **Discover pages and flows:**

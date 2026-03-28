@@ -44,7 +44,7 @@ Workflow:
    - Concurrent requests — does the server handle 10 simultaneous requests?
 
 5. **Frontend performance** (if web_url available and cmux browser present):
-   - Page load time: `SURFACE=$(cmux new-pane --type browser --url {web_url})` + `cmux browser wait --surface $SURFACE --load-state complete`, then measure with curl timing
+   - Page load time: open browser with `SURFACE=$(cmux browser open {web_url})`, wait with `cmux browser --surface $SURFACE wait --load-state complete`, then measure total time via Bash timing
    - Time to interactive
    - Large data rendering (does table/chart freeze with 1000+ rows?)
 

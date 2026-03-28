@@ -1,11 +1,16 @@
 # Audit Module: Performance
 
 **Browser access:** Yes. This is a Tier B (live browser) module with EXCLUSIVE browser access.
-Use cmux browser tools for navigation and resource analysis.
+Use cmux browser commands for navigation and resource analysis.
 You have exclusive browser access — no other agent is using cmux browser while you run.
 This module is the SOLE owner of Core Web Vitals measurement. No other module measures CWV.
 
-**Note:** cmux browser does not support JS execution (`browser_evaluate` is unavailable). Core Web Vitals must be measured via alternative means: use `curl` with timing flags (`curl -w "@curl-format.txt" -o /dev/null -s {url}`), or use `cmux read-screen` for visual load assessment. JS-based metric collection (LCP, CLS, INP) is not possible — substitute with curl timing and visual observation.
+**cmux is a native macOS terminal application — not an MCP server.** All commands run via **Bash**:
+```bash
+cmux browser --surface {s} <subcommand> [args]
+```
+
+JS execution is fully supported via `cmux browser --surface {s} eval '{js}'`. Use eval for Core Web Vitals measurement, resource analysis, and DOM inspection. Combine with `curl` for server-side timing and header inspection.
 
 ### Page Budget
 
@@ -15,7 +20,16 @@ Lightweight check (navigate + LCP measurement only): on ALL remaining pages.
 
 This prevents operationally infeasible 95+ page full measurements while ensuring no slow page goes completely unnoticed.
 
-**Prerequisites:** cmux browser (`cmux new-pane --type browser`, `cmux browser navigate`, `cmux browser snapshot`, `cmux read-screen`, `cmux browser resize`, `cmux browser click`, `cmux close-surface`)
+**Prerequisites:** cmux installed and a browser surface already open (Lead provides surface ID as `{surface}`).
+Key commands used in this module:
+- `cmux browser --surface {s} goto {url}` — navigate
+- `cmux browser --surface {s} wait --load-state complete` — wait for page load
+- `cmux browser --surface {s} eval '{js}'` — run JavaScript (CWV measurement, resource analysis)
+- `cmux browser --surface {s} snapshot -i` — accessibility tree snapshot
+- `cmux browser --surface {s} screenshot --out /path/file.png` — screenshot
+- `cmux browser --surface {s} resize --width {w} --height {h}` — viewport resize
+- `cmux browser --surface {s} click {ref}` — click element
+- `cmux close-surface --surface {s}` — MANDATORY when done
 
 > **Foundational Principle:** This module's checks are concrete applications of the Human-First Evaluation Principle. Performance is evaluated through the lens of: does the page load fast enough that the visitor's intent is not interrupted by waiting? Speed is not a metric — it's the preservation of human attention and momentum. Technical checks that PASS but violate the principle are still findings. See SKILL.md "FOUNDATIONAL PRINCIPLE" section.
 
@@ -42,11 +56,11 @@ You are a web performance auditor. You evaluate every page of the website for lo
 
 You MUST visit EVERY page listed in the sitemap provided to you. Do not skip pages. Do not sample. Do not stop early. For each page:
 
-```
-cmux browser navigate --surface {surface} --url {url}
-cmux browser wait --surface {surface} --load-state complete
-curl -w "time_total: %{time_total}s\ntime_starttransfer: %{time_starttransfer}s\n" -o /dev/null -s {url}  → collect timing metrics
-cmux read-screen --surface {surface}  → visual evidence of loaded state
+```bash
+cmux browser --surface {s} goto {url}
+cmux browser --surface {s} wait --load-state complete
+curl -w "time_total: %{time_total}s\ntime_starttransfer: %{time_starttransfer}s\n" -o /dev/null -s {url}  # collect server timing
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/perf-{page}.png  # visual evidence of loaded state
 ```
 
 Performance must be measured on EVERY page, not just the homepage. Slow inner pages are just as harmful.
@@ -61,20 +75,31 @@ Measure all three Core Web Vitals on every page. Note: INP replaced FID as of Ma
 
 **LCP (Largest Contentful Paint):**
 
-JS-based measurement is not available in cmux browser. Use curl timing as a proxy for load speed:
+Measure via PerformanceObserver eval after page load:
 
+```bash
+cmux browser --surface {s} goto {url}
+cmux browser --surface {s} wait --load-state complete
+cmux browser --surface {s} eval 'new Promise(resolve => {
+  const obs = new PerformanceObserver(list => {
+    const entries = list.getEntries();
+    resolve(JSON.stringify({ lcp: entries[entries.length-1].startTime, element: entries[entries.length-1].element?.tagName }));
+  });
+  obs.observe({ entryTypes: ["largest-contentful-paint"] });
+  setTimeout(() => resolve(JSON.stringify({ lcp: "timeout", note: "no LCP entry in 3s" })), 3000);
+})'
+```
+
+Also use curl as a server-side timing reference:
 ```bash
 curl -w "time_namelookup: %{time_namelookup}s\ntime_connect: %{time_connect}s\ntime_starttransfer: %{time_starttransfer}s\ntime_total: %{time_total}s\n" \
   -o /dev/null -s "{url}"
 ```
 
-Use `time_total` as a proxy for LCP estimate. Also navigate via cmux and observe visually:
+Take a screenshot after load to visually verify the LCP element:
+```bash
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/lcp-{page}.png
 ```
-cmux browser navigate --surface {surface} --url {url}
-cmux browser wait --surface {surface} --load-state complete
-cmux read-screen --surface {surface}
-```
-Estimate LCP from visual observation of when the largest content element appears.
 
 **Thresholds:**
 | Rating | LCP Value |
@@ -85,28 +110,44 @@ Estimate LCP from visual observation of when the largest content element appears
 
 **CLS (Cumulative Layout Shift):**
 
-JS-based CLS measurement is not available in cmux browser. Observe visually:
-- Navigate to page: `cmux browser navigate --surface {surface} --url {url}`
-- Wait for load: `cmux browser wait --surface {surface} --load-state complete`
-- Read screen immediately: `cmux read-screen --surface {surface}`
-- Wait 2 seconds, then read screen again: `cmux read-screen --surface {surface}`
-- Compare — did elements shift position?
+Measure via PerformanceObserver eval:
 
-**Thresholds:**
-| Rating | CLS Value |
-|--------|-----------|
-| Good | < 0.1 |
-| Needs Improvement | 0.1 - 0.25 |
-| Poor | > 0.25 → **FAIL** |
+```bash
+cmux browser --surface {s} goto {url}
+cmux browser --surface {s} wait --load-state complete
+cmux browser --surface {s} eval 'new Promise(resolve => {
+  let clsValue = 0;
+  const obs = new PerformanceObserver(list => {
+    list.getEntries().forEach(e => { if (!e.hadRecentInput) clsValue += e.value; });
+  });
+  obs.observe({ entryTypes: ["layout-shift"] });
+  setTimeout(() => resolve(JSON.stringify({ cls: Math.round(clsValue*1000)/1000 })), 3000);
+})'
+```
 
-To observe CLS visually: read screen immediately after navigation, then again after 2 seconds. Compare — did elements shift?
+Also visually confirm — take screenshots before and after a 2-second wait to spot visible shifts:
+```bash
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/cls-before-{page}.png
+# wait 2 seconds (next command)
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/cls-after-{page}.png
+```
 
 **INP (Interaction to Next Paint):**
-INP measures responsiveness to user interactions. Test by clicking interactive elements and observing response delay:
-- Click elements using `cmux browser click --surface {surface} '{ref}'`
-- Observe if UI response appears immediate or sluggish via `cmux read-screen --surface {surface}`
+INP measures responsiveness to user interactions. Measure via eval after interactions:
 
-Before measuring: click several interactive elements (buttons, links, form inputs) to assess responsiveness.
+```bash
+# First set up INP observer
+cmux browser --surface {s} eval 'window.__inpMax = 0; new PerformanceObserver(list => {
+  list.getEntries().forEach(e => { if (e.duration > window.__inpMax) window.__inpMax = e.duration; });
+}).observe({ entryTypes: ["event"] })'
+
+# Click several interactive elements
+cmux browser --surface {s} click {ref1}
+cmux browser --surface {s} click {ref2}
+
+# Read the max INP value observed
+cmux browser --surface {s} eval 'JSON.stringify({ inp: Math.round(window.__inpMax) })'
+```
 
 **Thresholds:**
 | Rating | INP Value |
@@ -136,11 +177,11 @@ curl -w "time_namelookup: %{time_namelookup}s\ntime_connect: %{time_connect}s\nt
 
 **FCP (First Contentful Paint):**
 
-Not directly measurable in cmux browser. Use curl `time_total` as a proxy, and navigate via cmux to observe visual load:
-```
-cmux browser navigate --surface {surface} --url {url}
-cmux browser wait --surface {surface} --load-state complete
-cmux read-screen --surface {surface}
+Measure via eval after navigation:
+```bash
+cmux browser --surface {s} goto {url}
+cmux browser --surface {s} wait --load-state complete
+cmux browser --surface {s} eval 'JSON.stringify({ fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime })'
 ```
 
 | Rating | FCP |
@@ -150,19 +191,31 @@ cmux read-screen --surface {surface}
 | Poor | > 3.0s → **FAIL** |
 
 **White flash / blank screen:**
-- Navigate to each page: `cmux browser navigate --surface {surface} --url {url}`
-- Read screen immediately after navigation: `cmux read-screen --surface {surface}`
-- Observe: is there a visible white/blank period before content appears?
+- Navigate to page and screenshot immediately before waiting for full load:
+```bash
+cmux browser --surface {s} goto {url}
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/load-flash-{page}.png
+cmux browser --surface {s} wait --load-state complete
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/load-done-{page}.png
+```
+- Compare screenshots — did content appear immediately or after a blank period?
 - WARN if there's a noticeable blank period (skeleton/placeholder is acceptable)
 
 **DOM Interactive timing:**
 
-Not directly measurable via cmux browser. Use curl total time as a proxy:
+Measure via eval:
+```bash
+cmux browser --surface {s} eval 'JSON.stringify({
+  domInteractive: performance.timing.domInteractive - performance.timing.navigationStart,
+  domComplete: performance.timing.domComplete - performance.timing.navigationStart,
+  loadEvent: performance.timing.loadEventEnd - performance.timing.navigationStart
+})'
+```
+Also use curl for server-side view:
 ```bash
 curl -w "time_total: %{time_total}s\ntime_starttransfer: %{time_starttransfer}s\nsize_download: %{size_download} bytes\n" \
   -o /dev/null -s "{url}"
 ```
-`time_starttransfer` approximates TTFB. `time_total` approximates full load.
 
 ### 3. Resource Analysis (Focus: 15% of audit effort)
 
@@ -170,17 +223,27 @@ Analyze what the page loads:
 
 **Resource count and size:**
 
-JS-based resource enumeration is not available in cmux browser. Use curl to measure total page weight:
+Enumerate resources via eval using the Performance Resource Timing API:
+```bash
+cmux browser --surface {s} eval '(() => {
+  const entries = performance.getEntriesByType("resource");
+  const summary = { total: entries.length, byType: {} };
+  entries.forEach(e => {
+    const type = e.initiatorType || "other";
+    if (!summary.byType[type]) summary.byType[type] = { count: 0, size: 0 };
+    summary.byType[type].count++;
+    summary.byType[type].size += e.transferSize || 0;
+  });
+  summary.totalSize = entries.reduce((s,e) => s + (e.transferSize||0), 0);
+  return JSON.stringify(summary);
+})()'
+```
+
+Also use curl to measure HTML payload:
 ```bash
 curl -w "size_download: %{size_download} bytes\nnum_connects: %{num_connects}\n" \
   -o /dev/null -s "{url}"
 ```
-
-Also inspect the page snapshot to identify resource types:
-```
-cmux browser snapshot --surface {surface} --interactive
-```
-Look for `<script>`, `<link rel="stylesheet">`, `<img>`, `<video>`, `<iframe>` references in snapshot output to estimate resource counts.
 
 **Thresholds:**
 - WARN if total requests > 50 per page
@@ -197,9 +260,16 @@ If a page contains `<video>` or video player iframes, apply adjusted thresholds:
 
 **Third-party resources:**
 
-Not enumerable via JS in cmux browser. Use `cmux browser snapshot --surface {surface} --interactive` to identify third-party script/iframe URLs in the page structure. Alternatively use `curl` to fetch the HTML source and grep for external domains:
+Enumerate via eval using Resource Timing:
 ```bash
-curl -s "{url}" | grep -oE 'src="https?://[^"]*"' | grep -v "{site_hostname}"
+cmux browser --surface {s} eval '(() => {
+  const siteHost = location.hostname;
+  const thirdParty = performance.getEntriesByType("resource")
+    .filter(e => { try { return new URL(e.name).hostname !== siteHost; } catch { return false; } });
+  const domains = [...new Set(thirdParty.map(e => new URL(e.name).hostname))];
+  const size = thirdParty.reduce((s,e) => s+(e.transferSize||0), 0);
+  return JSON.stringify({ count: thirdParty.length, domains, totalSize: size });
+})()'
 ```
 - WARN if > 10 third-party domains
 - WARN if third-party resources > 30% of total transfer size
@@ -214,19 +284,29 @@ If `discovery.json.hidden_ads` is non-empty, the site runs advertising scripts.
 
 **Image analysis:**
 
-Use snapshot and HTML source inspection instead of JS:
-```
-cmux browser snapshot --surface {surface} --interactive
-```
-Identify image elements in the snapshot. Also fetch HTML source to check image attributes:
+Use eval to inspect all images:
 ```bash
-curl -s "{url}" | grep -oE '<img[^>]*>' | head -30
+cmux browser --surface {s} eval '(() => {
+  const imgs = Array.from(document.querySelectorAll("img"));
+  return JSON.stringify(imgs.map(img => ({
+    src: img.src.slice(0, 80),
+    naturalW: img.naturalWidth, naturalH: img.naturalHeight,
+    displayW: img.clientWidth, displayH: img.clientHeight,
+    loading: img.loading,
+    format: img.src.split(".").pop()?.split("?")[0] || "unknown"
+  })).slice(0, 30));
+})()'
+```
+
+Also take a screenshot to visually verify image quality:
+```bash
+cmux browser --surface {s} screenshot --out {run_dir}/screenshots/images-{page}.png
 ```
 
 **Checks:**
-- Modern formats: check image `src` extensions in snapshot/HTML. WARN if using JPEG/PNG for large images (>100KB) instead of WebP/AVIF.
-- Lazy loading: check if below-fold images have `loading="lazy"` in HTML source. WARN if not.
-- FAIL if any above-fold image URL points to an obviously oversized file (>500KB estimated by curl download).
+- Modern formats: WARN if using JPEG/PNG for large images (>100KB) instead of WebP/AVIF. Check naturalWidth vs displayWidth for oversizing.
+- Lazy loading: WARN if below-fold images (naturalY > viewport height) lack `loading="lazy"`.
+- FAIL if any above-fold image URL points to an obviously oversized file (>500KB — verify with curl: `curl -I {img_url} | grep -i content-length`).
 
 **Iframe Lazy Loading:**
 - Check below-fold iframes (Google Maps, YouTube embeds, third-party widgets)
@@ -239,23 +319,29 @@ curl -s "{url}" | grep -oE '<img[^>]*>' | head -30
 
 **Check render-blocking behavior:**
 
-Not measurable via JS in cmux browser. Use HTML source inspection:
+Check via eval (Navigation Timing API for blocking time) and HTML source:
+```bash
+cmux browser --surface {s} eval 'JSON.stringify({
+  blockingTime: performance.timing.responseEnd - performance.timing.requestStart,
+  scripts: Array.from(document.querySelectorAll("script[src]")).map(s => ({
+    src: s.src.slice(0,80), async: s.async, defer: s.defer, inHead: s.closest("head") !== null
+  })).slice(0,20),
+  styles: Array.from(document.querySelectorAll("link[rel=stylesheet]")).map(s => ({
+    href: s.href.slice(0,80), inHead: s.closest("head") !== null
+  })).slice(0,10)
+})'
+```
+
+Also check via curl for double-verification:
 ```bash
 curl -s "{url}" | grep -E '<link[^>]*rel="stylesheet"[^>]*>|<script[^>]*src="[^"]*"[^>]*>'
 ```
-Check if `<link rel="stylesheet">` tags are in `<head>` (render-blocking) and if `<script>` tags lack `async` or `defer`.
 
 - WARN if > 3 render-blocking stylesheet/script resources
 - WARN if any inline/external CSS is > 100KB (check via `curl -I {css_url}` to get Content-Length)
-- Note total blocking time estimate
 
 **Script loading strategy:**
-
-Check via HTML source:
-```bash
-curl -s "{url}" | grep -oE '<script[^>]*src="[^"]*"[^>]*>'
-```
-- WARN if scripts in `<head>` lack `async` or `defer` attributes
+- WARN if scripts in `<head>` lack `async` or `defer` attributes (visible in eval output above)
 
 ### 6. Font Loading (Focus: 5% of audit effort)
 
@@ -272,21 +358,22 @@ curl -I "{font_url}" | grep -i content-length
 
 - WARN if > 4 font files (suggests too many font families/weights)
 - WARN if total font size > 200KB
-- Check for FOIT/FOUT: navigate to page and observe text rendering via `cmux read-screen --surface {surface}`
+- Check for FOIT/FOUT: navigate to page, screenshot immediately after navigation to check if text is invisible/unstyled during font load: `cmux browser --surface {s} screenshot --out {run_dir}/screenshots/font-load-{page}.png`
 - Check `font-display` usage: `curl -s "{css_url}" | grep font-display`
 
 ### 7. Mobile Performance (Focus: 10% of audit effort)
 
 Test performance at mobile viewport:
 
-```
-cmux browser resize --surface {surface} --width 375 --height 812
+```bash
+cmux browser --surface {s} resize --width 375 --height 812
 ```
 
 For each page at mobile:
-- Re-navigate: `cmux browser navigate --surface {surface} --url {url}`
-- Re-run curl timing as primary metric
-- Compare visual load via `cmux read-screen --surface {surface}`
+- Re-navigate: `cmux browser --surface {s} goto {url}`
+- Re-run curl timing as server-side reference
+- Re-run LCP/CLS eval at mobile viewport
+- Screenshot to visually verify mobile load: `cmux browser --surface {s} screenshot --out {run_dir}/screenshots/mobile-perf-{page}.png`
 
 **Mobile-specific checks:**
 - WARN if mobile page loads significantly more resources than necessary (desktop-only assets served to mobile)
@@ -301,7 +388,7 @@ curl -s "{url}" | grep -i 'meta.*viewport'
 - FAIL if no viewport meta tag
 - WARN if viewport doesn't include `width=device-width`
 
-After mobile testing, restore: `cmux browser resize --surface {surface} --width 1440 --height 900`
+After mobile testing, restore: `cmux browser --surface {s} resize --width 1440 --height 900`
 
 ### 8. Caching Indicators (Focus: 5% of audit effort)
 
@@ -322,9 +409,9 @@ Check cache headers:
 curl -I "{url}" | grep -i 'cache-control\|etag\|last-modified\|expires'
 ```
 
-- Navigate away: `cmux browser navigate --surface {surface} --url about:blank`
-- Navigate back: `cmux browser navigate --surface {surface} --url {url}` → observe load speed
-- Compare: did second visit feel faster?
+- Navigate away: `cmux browser --surface {s} goto about:blank`
+- Navigate back: `cmux browser --surface {s} goto {url}` → measure LCP again via eval
+- Compare: did second visit load faster?
 - WARN if cache headers are missing (no `Cache-Control`, no `ETag`)
 
 **Service Worker:**
@@ -520,11 +607,13 @@ Final: 100 - {X} = {N}
 
 - All report content in English. Technical terms (LCP, CLS, INP, FCP, TTFB, CWV, FOIT, FOUT, WebP, AVIF) in English.
 - Every finding MUST use the finding template defined in the main SKILL.md. Do NOT use any other template format.
-- Reference screen reads from `cmux read-screen` as visual evidence.
+- Use `cmux browser --surface {s} screenshot --out {path}` for visual evidence of load states.
+- Use `cmux browser --surface {s} eval '{js}'` for metric collection (LCP, CLS, INP, resource timing). This is FULLY supported.
+- Use `curl` for server-side HTTP timing (TTFB, headers, cache headers). Complement — not replace — browser metrics.
+- CSS selectors with embedded quotes fail on the command line. Use element refs (e1, e2, ...) from `snapshot -i` output, or use eval with JS querySelector.
 - Do not inspect source code or server configuration. Measure via cmux browser navigation and curl timing.
 - Do not visit external websites. Only measure the target site.
 - Performance metrics can vary between runs. If a measurement seems anomalous, re-measure (navigate away and back).
-- JS execution (`browser_evaluate`) is NOT available in cmux browser. Use curl for timing data and HTML source inspection for resource analysis.
 - Always navigate fresh to each page for timing measurement (don't rely on cached visits for primary metrics).
-- Always close the browser surface when done: `cmux close-surface --surface {surface}`.
-- Note: cmux browser network conditions may differ from typical users. Document your measurement environment.
+- Always close the browser surface when done: `cmux close-surface --surface {s}`.
+- Note: cmux browser uses a local unthrottled network. Real-world metrics on mobile/4G may be 2-3x worse. Document your measurement environment in the report.

@@ -703,7 +703,7 @@ applying copy quality checks to legal documents, or demanding social proof on ch
 
 - Skipping Discovery phase
 - Limiting page coverage arbitrarily ("max 6 pages", "key pages only") — crawl up to max_pages (default 100), prioritizing by navigation hierarchy
-- Using `web_fetch` without cmux browser — ALL browsing via cmux browser tools
+- Using `web_fetch` or MCP tools for browsing — ALL live browser interaction via cmux browser commands (Bash)
 - Looking at source code or suggesting code changes
 - Using technical language ("change className", "add CSS", "modify component")
 - Referencing external websites as examples (no browsing competitors)
@@ -940,10 +940,22 @@ Write `{run_dir}/state.json`:
 
 Store resolved URL as `{site_url}`.
 
-### MCP Verification
+### cmux Verification
 
-Verify cmux browser is available by opening a browser surface: `cmux new-pane --type browser --url {site_url}`.
-If cmux browser is not available → STOP and tell user to configure it.
+**cmux is a native macOS terminal application — not an MCP server, not a library.**
+All cmux commands run via **Bash** as regular shell commands.
+
+Verify cmux browser is available by opening a browser surface:
+```bash
+SURFACE=$(cmux browser open {site_url})
+```
+This returns a surface ID like `surface:11`. Store it in `$SURFACE`.
+If the command fails (cmux not installed) → STOP and tell user to install cmux.
+
+All subsequent browser commands follow the pattern:
+```bash
+cmux browser --surface $SURFACE <subcommand> [args]
+```
 
 ### Full Site Crawl
 
@@ -967,22 +979,22 @@ and why in `sitemap.md`.
 
 #### Step 1: Initial Crawl
 
-```
-SURFACE=$(cmux new-pane --type browser --url {site_url})
-cmux browser wait --surface $SURFACE --load-state complete
+```bash
+SURFACE=$(cmux browser open {site_url})
+cmux browser --surface $SURFACE wait --load-state complete
 ```
 
 #### Cookie Consent Dismissal
 
 Before taking any snapshots, dismiss cookie/GDPR banners via snapshot + click:
 
-```
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE snapshot -i
 ```
 Look in the snapshot for cookie consent button refs (labels: "Accept", "Agree", "Принять", "Согласен", "OK", "Хорошо", "Принимаю").
 If found, click the button:
-```
-cmux browser click --surface $SURFACE '{ref_of_accept_button}'
+```bash
+cmux browser --surface $SURFACE click {ref_of_accept_button}
 ```
 
 Wait 1 second after dismissal for animation to complete — simply proceed (cmux browser handles timing).
@@ -994,22 +1006,21 @@ Run this ONCE at the start of Discovery, not on every page.
 
 Handle browser-level notification prompts via snapshot + click.
 For in-page notification opt-ins:
-```
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE snapshot -i
 ```
 Look in snapshot for dismiss buttons (labels: "Не сейчас", "Нет", "Позже", "No thanks").
-If found: `cmux browser click --surface $SURFACE '{ref_of_dismiss_button}'`
+If found: `cmux browser --surface $SURFACE click {ref_of_dismiss_button}`
 Best-effort. Run ONCE after cookie consent dismissal.
 
 #### Third-Party Widget Hiding
 
-After cookie consent dismissal, note persistent floating widgets in the snapshot. Since cmux browser does not support JS execution, widgets cannot be hidden programmatically. Instead:
-- Take snapshot: `cmux browser snapshot --surface $SURFACE --interactive`
+After cookie consent dismissal, note persistent floating widgets in the snapshot. Widgets can be hidden via JS eval:
+- Take snapshot: `cmux browser --surface $SURFACE snapshot -i`
 - Identify floating widget refs (Intercom, Drift, Crisp, JivoSite, Telegram widget, LiveChat, etc.) in the snapshot
 - Note them in discovery.json: `"floating_widgets": ["intercom", ...]`
+- To hide them for screenshots: `cmux browser --surface $SURFACE eval 'document.querySelectorAll(".intercom-launcher, #jivo-iframe-container, [id*="chat"]").forEach(el => el.style.display="none")'`
 - When analyzing page layouts, note if widget elements overlap content (document as a finding if so)
-
-Note: Widget CSS hiding (via `display: none`) is not available without JS execution in cmux browser.
 
 Record hidden widgets in discovery.json: `"hidden_widgets": ["intercom", ...]`
 Note: Widgets are hidden for SCREENSHOT purposes only. The Accessibility module (Tier B) should test with widgets visible (they are part of the tab order).
@@ -1017,19 +1028,21 @@ Before Tier B modules run, the Lead should note: "Widgets were hidden during Dis
 
 #### Ad Banner Detection
 
-Since cmux browser does not support JS execution, ad banners cannot be hidden programmatically. Instead:
-- Take snapshot: `cmux browser snapshot --surface $SURFACE --interactive`
+Ad banners can be hidden via JS eval for cleaner screenshots:
+- Take snapshot: `cmux browser --surface $SURFACE snapshot -i`
 - Identify ad-related elements in snapshot (classes/IDs containing: yandex_rtb, adfox, advert, ad-banner, adsbygoogle, doubleclick, googlesyndication, native-ad, sponsored)
 - Note them in discovery.json: `"hidden_ads": ["yandex_rtb", ...]`
+- To hide for screenshots: `cmux browser --surface $SURFACE eval 'document.querySelectorAll("[id*=yandex_rtb], .adsbygoogle, [class*=ad-banner]").forEach(el => el.style.display="none")'`
 - Performance module should measure ads as they appear — ads impact real performance.
 Add note: "Ad presence documented from snapshot. Performance module tests the live site with ads active."
 
 #### CallTracking Detection
 
-Check for common call tracking scripts via HTML source:
+Check for common call tracking scripts via HTML source or eval:
 ```bash
 curl -s "{site_url}" | grep -oiE '(calltouch|comagic|roistat|callibri|mango-office|calltracking|ringostat)'
 ```
+Or via eval: `cmux browser --surface $SURFACE eval 'document.body.innerHTML.match(/(calltouch|comagic|roistat|ringostat)/i)?.[0] || "none"'`
 
 Record in discovery.json: `"calltracking_detected": true/false, "calltracking_service": "calltouch"`
 When calltracking is detected, add to discovery.json: `"calltracking_note": "Phone numbers on this site are dynamically replaced by CallTracking service. NAP phone consistency checks should be suppressed — different numbers per page are intentional."`
@@ -1037,8 +1050,8 @@ When calltracking is detected, add to discovery.json: `"calltracking_note": "Pho
 #### Geo-Detection Check
 
 Check if the site shows geo-dependent content via snapshot:
-```
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE snapshot -i
 ```
 Look in snapshot for city selection elements (labels/text: "Выберите город", "Ваш город", "Select city") or geo-related button refs.
 If found: note detected=true and current city text in discovery.json.
@@ -1051,8 +1064,8 @@ Add to ALL module reports: "⚠️ The site uses geo-detection. Audit was conduc
 After initial page load, check if the site requires user input to show content:
 
 Use snapshot to detect input gates:
-```
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE snapshot -i
 ```
 In the snapshot, check:
 - Are there fewer than 10 internal links visible?
@@ -1069,12 +1082,12 @@ If input-gated:
    {field2.placeholder}: ___
    {field3.placeholder}: ___
    Enter values for a complete audit, or skip."
-4. If user provides values: fill ALL inputs via `cmux browser type --surface $SURFACE '{ref}' '{text}'`, submit via `cmux browser click --surface $SURFACE '{submit_ref}'`, wait for load, continue crawl from populated state
+4. If user provides values: fill ALL inputs via `cmux browser --surface $SURFACE fill {ref} '{text}'`, submit via `cmux browser --surface $SURFACE click {submit_ref}`, wait for load, continue crawl from populated state
 5. If user skips: proceed with limited crawl, note in SITE-REVIEW.md: "⚠️ Content behind the input form ({N} fields) was not evaluated."
 
-```
-cmux read-screen --surface $SURFACE  → save output to {run_dir}/screenshots/homepage-desktop.txt
-cmux browser snapshot --surface $SURFACE --interactive  → save output to {run_dir}/snapshots/homepage.txt
+```bash
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/homepage-desktop.png
+cmux browser --surface $SURFACE snapshot -i  # save output to {run_dir}/snapshots/homepage.txt
 ```
 
 Extract ALL links via snapshot analysis:
@@ -1115,37 +1128,37 @@ If sitemap.xml contains additional URLs not found via link crawling, add them to
 
 For EACH unique route in the queue (up to `max_pages`):
 
-```
-cmux browser navigate --surface $SURFACE --url {url}
-cmux browser wait --surface $SURFACE --load-state complete
-cmux browser snapshot --surface $SURFACE --interactive  → save to {run_dir}/snapshots/{page_slug}.txt
-cmux read-screen --surface $SURFACE  → save to {run_dir}/screenshots/{page_slug}-desktop.txt
+```bash
+cmux browser --surface $SURFACE goto {url}
+cmux browser --surface $SURFACE wait --load-state complete
+cmux browser --surface $SURFACE snapshot -i  # save to {run_dir}/snapshots/{page_slug}.txt
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-desktop.png
 ```
 
 **Note:** Scroll capture is NOT done here. It happens in Step 4 (Post-Interaction Scroll Capture) AFTER interactive testing has revealed hidden content (expanded accordions, loaded "load more" content, etc.).
 
-```
-cmux browser resize --surface $SURFACE --width 375 --height 812
-cmux read-screen --surface $SURFACE  → save to {run_dir}/screenshots/{page_slug}-mobile.txt
+```bash
+cmux browser --surface $SURFACE resize --width 375 --height 812
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-mobile.png
 
 # Tablet viewport
-cmux browser resize --surface $SURFACE --width 768 --height 1024
-cmux read-screen --surface $SURFACE  → save to {run_dir}/screenshots/{page_slug}-tablet.txt
-cmux browser resize --surface $SURFACE --width 1440 --height 900  # restore desktop
+cmux browser --surface $SURFACE resize --width 768 --height 1024
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-tablet.png
+cmux browser --surface $SURFACE resize --width 1440 --height 900  # restore desktop
 ```
 
 Tablet scroll capture is NOT needed (desktop scroll captures cover the content). Tablet screenshot is for responsive layout evaluation only.
 
 Also extract and save page metadata. Wait for SPA hydration using cmux browser wait:
 
-```
-cmux browser wait --surface $SURFACE --load-state complete
+```bash
+cmux browser --surface $SURFACE wait --load-state complete
 ```
 
 Then extract metadata via snapshot and curl:
 
-```
-cmux browser snapshot --surface $SURFACE --interactive  → analyze for title, h1, meta description, links, form elements, interactive elements
+```bash
+cmux browser --surface $SURFACE snapshot -i  # analyze for title, h1, meta description, links, form elements, interactive elements
 ```
 
 For meta tags not visible in snapshot, use curl:
@@ -1190,7 +1203,7 @@ Continue until queue is empty or `max_pages` reached.
 #### Auth-Gated Content Detection
 
 During crawl, detect pages that redirect to login:
-- If `cmux browser navigate --surface $SURFACE --url {url}` results in loading a login/register page (check snapshot/read-screen for login form), record the original URL as auth-gated
+- If `cmux browser --surface $SURFACE goto {url}` results in loading a login/register page (check snapshot for login form), record the original URL as auth-gated
 - Record in discovery.json: `"auth_gated_pages": ["/dashboard", "/account", "/courses/viewer"]`
 - In SITE-REVIEW.md, include a prominent section: "Pages behind authentication (not evaluated): {list}. Credentials are required to audit these pages."
 - Do NOT attempt to log in. Do NOT ask user for credentials. Simply document what was found and what was not auditable.
@@ -1198,8 +1211,8 @@ During crawl, detect pages that redirect to login:
 #### Infinite Scroll Detection
 
 After initial page load, check for infinite scroll via snapshot observation:
-- Take initial snapshot: `cmux browser snapshot --surface $SURFACE --interactive`
-- Scroll by reading screen: `cmux read-screen --surface $SURFACE`
+- Take initial snapshot: `cmux browser --surface $SURFACE snapshot -i`
+- Scroll down to check for more content: `cmux browser --surface $SURFACE scroll --dy 2000`
 - Note if the snapshot reveals a feed/list structure with `load more` triggers or dynamic loading patterns
 - Infinite scroll heuristic: if page contains a list/feed structure with no visible "last page" pagination, assume infinite scroll possible
 
@@ -1297,16 +1310,16 @@ Motion/hover capture (Step 3.5) uses a subset of these — the top 10 by the sam
 For EACH page (within the interactive testing scope), interact with EVERY element:
 
 **Buttons and clickables:**
-- `cmux browser click --surface $SURFACE '{ref}'` every button that opens modals, dropdowns, menus, sidebars
-- `cmux read-screen --surface $SURFACE` to capture each opened state
-- Click close/X button or read-screen to verify it closes
+- `cmux browser --surface $SURFACE click {ref}` every button that opens modals, dropdowns, menus, sidebars
+- `cmux browser --surface $SURFACE snapshot -i` to capture each opened state
+- Click close/X button or take snapshot to verify it closes
 
 **Forms:**
 - Find every form on the site via snapshot
 - Extract form structure from snapshot: identify all input, textarea, select elements with their labels, placeholders, required state, and submit button text
 - Store extracted forms in `discovery.json.pages[].forms`
 - Document: fields, labels, placeholders, required markers, submit button text
-- Check validation states: click submit without filling → read-screen for error states
+- Check validation states: click submit without filling → snapshot for error states
 - Check field types visible in snapshot
 
 #### Masked Content Detection
@@ -1318,8 +1331,8 @@ From the snapshot, find button elements with labels matching reveal patterns:
 - English: "show phone", "show number", "show contact", "read more"
 
 For each detected masked content button (on interactive testing pages):
-1. Click the button: `cmux browser click --surface $SURFACE '{ref}'`
-2. Read screen of revealed state: `cmux read-screen --surface $SURFACE`
+1. Click the button: `cmux browser --surface $SURFACE click {ref}`
+2. Take snapshot of revealed state: `cmux browser --surface $SURFACE snapshot -i`
 3. Record revealed content in discovery.json per page: `"revealed_content": [{"trigger": "Show phone", "content": "+7 999 123-45-67"}]`
 
 #### Interactive Controls Detection (beyond <form>)
@@ -1346,10 +1359,10 @@ If business_type in [ecommerce, marketplace, food_delivery]:
 This gives modules populated checkout views instead of empty-cart states.
 
 **Navigation:**
-- Mobile menu: `cmux browser resize --surface $SURFACE --width 375 --height 812` → find hamburger menu ref in snapshot → `cmux browser click --surface $SURFACE '{hamburger_ref}'`
+- Mobile menu: `cmux browser --surface $SURFACE resize --width 375 --height 812` → find hamburger menu ref in snapshot → `cmux browser --surface $SURFACE click {hamburger_ref}`
 - Dropdown menus: click each nav item with submenus via snapshot refs
 - Tab bars, sidebars, breadcrumbs
-- `cmux browser resize --surface $SURFACE --width 1440 --height 900` → restore desktop
+- `cmux browser --surface $SURFACE resize --width 1440 --height 900` → restore desktop
 
 **Dynamic content:**
 - Scroll to bottom of each page → check for lazy-loaded content
@@ -1358,9 +1371,9 @@ This gives modules populated checkout views instead of empty-cart states.
 
 **States:**
 - Empty states (if data-dependent pages, note what they show with no data)
-- Loading states (observe during navigation transitions via `cmux read-screen`)
+- Loading states (observe during navigation transitions via snapshot)
 - Error states (navigate to non-existent routes → 404 page)
-- Hover states: not directly available in cmux browser — use `cmux browser click` as substitute where applicable
+- Hover states: use `cmux browser --surface $SURFACE hover {ref}` to trigger hover effects, then take screenshot
 
 #### Step 3.5: Motion & Hover Capture Pass
 
@@ -1368,12 +1381,12 @@ On up to 10 key pages (homepage + main nav pages + primary conversion pages):
 
 **Hover state capture:**
 
-Note: cmux browser does not support hover. Use click as a substitute where hover triggers state change:
+cmux browser supports hover directly:
+```bash
+cmux browser --surface $SURFACE hover {element_ref}
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-hover-{element_desc}.png
 ```
-cmux browser click --surface $SURFACE '{element_ref}'  → observe state change via read-screen
-cmux read-screen --surface $SURFACE → save as {run_dir}/screenshots/{page_slug}-hover-{element_desc}.txt
-```
-For hover states not triggerable by click, note in motion-notes.md as "hover state not capturable — cmux browser limitation".
+Use snapshot refs (e1, e2, ...) from `snapshot -i` output rather than CSS selectors with quotes to avoid quoting issues.
 
 **Page transition observation:**
 Navigate between 3-5 pages in sequence. After each navigation, note:
@@ -1400,7 +1413,16 @@ Save transition observations to `{run_dir}/motion-notes.md`:
 
 **Scroll animation detection:**
 
-Note: cmux browser does not support JS-based scrolling. Use cmux read-screen at initial load position. Scroll animations cannot be triggered — note this limitation in motion-notes.md: "Scroll animations not testable — cmux browser does not support JS scrollTo."
+Trigger scroll animations using:
+```bash
+cmux browser --surface $SURFACE scroll --dy 500
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-scroll-{N}.png
+```
+Repeat for progressive scroll positions. JS-based scroll is also available via `eval`:
+```bash
+cmux browser --surface $SURFACE eval 'window.scrollTo(0, 800)'
+```
+Note any scroll-triggered animations observed in screenshots in motion-notes.md.
 
 This data feeds UX Design Dimension 6 (Motion & Micro-interactions).
 Tier A modules can read `{run_dir}/motion-notes.md` and hover screenshots from cache.
@@ -1408,15 +1430,15 @@ Tier A modules can read `{run_dir}/motion-notes.md` and hover screenshots from c
 #### Step 3.6: Theme/Dark Mode Detection
 
 Check for theme toggle via snapshot:
-```
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE snapshot -i
 ```
 Look in snapshot for theme toggle buttons (labels/aria: "dark mode", "dark", "theme", "тёмн", "тем").
 
 If theme toggle found:
-1. Click the toggle: `cmux browser click --surface $SURFACE '{toggle_ref}'`
-2. Read screen for up to 10 key pages (homepage + depth-1 nav pages):
-   - Save `cmux read-screen --surface $SURFACE` output as `{page_slug}-desktop-dark.txt`
+1. Click the toggle: `cmux browser --surface $SURFACE click {toggle_ref}`
+2. Screenshot for up to 10 key pages (homepage + depth-1 nav pages):
+   - `cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-desktop-dark.png`
 3. Click toggle again to restore original theme
 4. Record in discovery.json: `"dark_mode": {"detected": true, "pages_captured": [...]}`
 
@@ -1426,14 +1448,14 @@ If no toggle found: `"dark_mode": {"detected": false}`. Skip dual capture.
 #### Visually Impaired Version Detection (GOST R 52872-2019)
 
 Check for "version for visually impaired" toggle (Russian government/institutional sites) via snapshot:
-```
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE snapshot -i
 ```
 Look in snapshot for BVI toggle buttons (labels: "Версия для слабовидящих", "Для слабовидящих").
 
 If found:
-1. Click the toggle: `cmux browser click --surface $SURFACE '{bvi_toggle_ref}'`
-2. Read screen for up to 5 key pages and save as `{page_slug}-desktop-bvi.txt`
+1. Click the toggle: `cmux browser --surface $SURFACE click {bvi_toggle_ref}`
+2. Screenshot for up to 5 key pages and save as `{page_slug}-desktop-bvi.png`
 3. Restore normal version
 4. Record: `"visually_impaired_version": {"detected": true}`
 5. Accessibility module evaluates BOTH versions
@@ -1444,16 +1466,16 @@ If found:
 
 For EACH page (desktop only):
 
-Note: cmux browser does not support JS-based scrolling. Use `cmux read-screen --surface $SURFACE` at initial load position to capture visible content. Scroll capture is limited to the initial viewport.
-
-For each page, capture:
-```
-cmux read-screen --surface $SURFACE → save as {run_dir}/screenshots/{page_slug}-desktop-scroll-1.txt
-cmux browser snapshot --surface $SURFACE --interactive → save as {run_dir}/snapshots/{page_slug}.txt
+Capture scroll screenshots using the `scroll` command and `screenshot`:
+```bash
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-desktop-scroll-1.png
+cmux browser --surface $SURFACE scroll --dy 800
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-desktop-scroll-2.png
+# repeat as needed (max 5 scroll screenshots per page)
+cmux browser --surface $SURFACE snapshot -i  # save as {run_dir}/snapshots/{page_slug}.txt
 ```
 
 This gives Tier A modules the accessibility tree of the ENTIRE page (snapshot contains all DOM content, not just above-fold).
-Naming: `{page_slug}-desktop-scroll-1.txt`
 Do NOT attempt scroll capture on mobile viewport.
 
 **Limits:** Max 5 scroll screenshots per page. Max 150 scroll screenshots total across the site. If a page exceeds 5 viewport heights, capture the first 3 and the last 2 (top + bottom of page). Skip scroll capture entirely on pages shorter than 2 viewports.
@@ -1465,10 +1487,10 @@ For EACH page, test at minimum:
 - Mobile: 375×812
 
 At each viewport:
-```
-cmux browser resize --surface $SURFACE --width {width} --height {height}
-cmux read-screen --surface $SURFACE
-cmux browser snapshot --surface $SURFACE --interactive
+```bash
+cmux browser --surface $SURFACE resize --width {width} --height {height}
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-{viewport}.png
+cmux browser --surface $SURFACE snapshot -i
 ```
 
 Note any differences in layout, hidden/shown elements, navigation changes.
@@ -1771,16 +1793,16 @@ Phase 0 DISCOVER stores everything agents need:
 - `{run_dir}/motion-notes.md` — hover states, page transitions, and scroll animation observations
 
 During Discovery, for EACH page, Lead saves:
-```
-cmux browser navigate --surface $SURFACE --url {url}
-cmux browser wait --surface $SURFACE --load-state complete
-cmux browser snapshot --surface $SURFACE --interactive → save to {run_dir}/snapshots/{page_name}.txt
-cmux read-screen --surface $SURFACE → save to {run_dir}/screenshots/{page_name}-desktop.txt
-cmux browser resize --surface $SURFACE --width 375 --height 812
-cmux read-screen --surface $SURFACE → save to {run_dir}/screenshots/{page_name}-mobile.txt
-cmux browser resize --surface $SURFACE --width 768 --height 1024
-cmux read-screen --surface $SURFACE → save to {run_dir}/screenshots/{page_name}-tablet.txt
-cmux browser resize --surface $SURFACE --width 1440 --height 900
+```bash
+cmux browser --surface $SURFACE goto {url}
+cmux browser --surface $SURFACE wait --load-state complete
+cmux browser --surface $SURFACE snapshot -i  # save to {run_dir}/snapshots/{page_name}.txt
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_name}-desktop.png
+cmux browser --surface $SURFACE resize --width 375 --height 812
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_name}-mobile.png
+cmux browser --surface $SURFACE resize --width 768 --height 1024
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_name}-tablet.png
+cmux browser --surface $SURFACE resize --width 1440 --height 900
 ```
 
 This cached data is sufficient for 7 of 9 modules.

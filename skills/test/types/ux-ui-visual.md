@@ -23,14 +23,22 @@ Your primary mission is DESIGN QUALITY EVALUATION — not just finding broken pi
 
 Web URL: {profile.services.web_url}
 
-MANDATORY: Use cmux browser for ALL visual checks:
-- `cmux new-pane --type browser --url {url}` → returns surface ID (e.g. surface:2)
-- `cmux browser wait --surface {surface} --load-state complete` — wait for page load
-- `cmux browser snapshot --surface {surface} --interactive` — read accessibility tree (structure, labels, roles)
-- `cmux read-screen --surface {surface}` — capture visual state (PRIMARY tool — read screen EVERY page)
-- `cmux browser click --surface {surface} '{ref}'` — interact with elements
-- `cmux browser resize --surface {surface} --width {w} --height {h}` — test different viewports
-- `cmux close-surface --surface {surface}` — MANDATORY when done
+MANDATORY: Use cmux browser for ALL visual checks. cmux is a native macOS app — all commands run via Bash, not MCP tools.
+
+```bash
+S=$(cmux browser open {url})                              # open browser, save surface ID
+cmux browser --surface $S wait --load-state complete      # wait for page load
+cmux browser --surface $S snapshot -i                     # interactive snapshot — element refs + structure
+cmux browser --surface $S screenshot --out /tmp/page.png  # capture visual state
+cmux browser --surface $S click {ref}                     # interact (prefer refs from snapshot -i)
+cmux browser --surface $S eval '{js}'                     # execute JavaScript
+cmux browser --surface $S goto {url}                      # navigate
+cmux browser --surface $S get text 'body'                 # get page text
+cmux browser --surface $S console list                    # check console errors
+cmux close-surface --surface $S                           # MANDATORY when done
+```
+
+Note: viewport resizing is done via: `cmux browser --surface $S eval 'window.resizeTo(375, 812)'` or by opening a new browser surface at the desired size.
 
 Also read frontend source code (CSS, Tailwind config) to understand design tokens and theme setup.
 

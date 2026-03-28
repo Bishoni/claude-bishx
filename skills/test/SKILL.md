@@ -667,7 +667,7 @@ After bd tasks are created, present a summary:
 3. **cmux browser is MANDATORY** for web E2E. No curl/fetch substitutes for UI testing.
 4. **Do NOT fix bugs** — only find and report. The output is a bd task, not a code change.
 5. **Proposed tests go to `{run_dir}/proposed-tests/` ONLY** — never write into the project tree.
-6. **Capture every visual anomaly** — via `cmux read-screen --surface {surface}`.
+6. **Capture every visual anomaly** — via `cmux browser --surface {surface} screenshot --out /tmp/screenshot.png`.
 7. **Proposed test files are suggestions** — user decides whether to copy them into the project.
 8. **Exhaustive bug descriptions** — developer must be able to fix without asking questions.
 9. **Deduplicate** — same root cause found by multiple phases = one bd task, mention all evidence.
