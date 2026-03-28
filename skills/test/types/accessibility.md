@@ -9,7 +9,7 @@ Read these sections from `{run_dir}/discovery-report.md`:
 
 ## Context Budget
 
-- browser_snapshot: scan for a11y issues, do NOT copy entire tree into report
+- cmux browser snapshot: scan for a11y issues, do NOT copy entire tree into report
 - Source reads: only component files with interactive elements (forms, buttons, navigation)
 - Limit to main pages/routes (max 8), not every sub-component
 - Grep/search: max 30 matches per query
@@ -20,18 +20,22 @@ You are performing accessibility (a11y) testing of "{profile.project}".
 
 Web URL: {profile.services.web_url}
 
-MANDATORY: Use MCP Playwright for all checks:
-- `browser_navigate(url)` — open pages
-- `browser_snapshot()` — returns the accessibility tree (primary tool for a11y)
-- `browser_click(element, ref)` — interact with elements
-- `browser_press_key(key)` — keyboard navigation (Tab, Enter, Escape, Arrow keys)
-- `browser_take_screenshot()` — capture visual state
+MANDATORY: Use cmux browser for all checks:
+- `cmux new-pane --type browser --url {url}` → returns surface ID (store as $SURFACE)
+- `cmux browser wait --surface $SURFACE --load-state complete` — wait for page load
+- `cmux browser navigate --surface $SURFACE --url {url}` — navigate to pages
+- `cmux browser snapshot --surface $SURFACE --interactive` — returns the accessibility tree (primary tool for a11y)
+- `cmux browser click --surface $SURFACE '{ref}'` — interact with elements
+- `cmux read-screen --surface $SURFACE` — capture visual state
+- `cmux close-surface --surface $SURFACE` — MANDATORY when done
+
+Note: `browser_press_key` is not directly available in cmux browser. Use `cmux browser type --surface $SURFACE '{ref}' ''` for text input, or click to trigger navigation. Keyboard navigation testing is limited.
 
 Workflow:
 1. **Accessibility tree audit:**
    For each page/route:
-   - `browser_navigate` to the page
-   - `browser_snapshot` to get the accessibility tree
+   - `cmux browser navigate --surface $SURFACE --url {url}` to the page
+   - `cmux browser snapshot --surface $SURFACE --interactive` to get the accessibility tree
    - Check every interactive element has:
      - Accessible name (label, aria-label, aria-labelledby)
      - Correct role (button, link, textbox, combobox, etc.)
@@ -39,12 +43,11 @@ Workflow:
    - Flag: unnamed buttons, images without alt text, inputs without labels, generic divs used as buttons
 
 2. **Keyboard navigation:**
-   - Tab through the entire page: can you reach every interactive element?
-   - Is focus order logical? (top-to-bottom, left-to-right)
-   - Is focus visible? (focus ring or highlight on focused element)
-   - Can you activate buttons/links with Enter/Space?
-   - Can you close modals/dropdowns with Escape?
-   - Are there keyboard traps? (focus stuck in an element, can't Tab out)
+   - Note: `browser_press_key` is not available in cmux browser. Test keyboard navigation by clicking elements in sequence and observing focus via snapshot.
+   - Check snapshot for focus indicators and logical element order
+   - Test activation: `cmux browser click --surface $SURFACE '{ref}'` and verify result
+   - Can you close modals/dropdowns? Check for close button refs in snapshot
+   - Are there keyboard traps? Look for modal/overlay patterns in snapshot with no close mechanism
 
 3. **Semantic HTML:**
    - Read frontend source for:

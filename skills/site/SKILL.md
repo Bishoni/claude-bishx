@@ -1,11 +1,11 @@
 ---
 name: site
-description: "Full website audit — UX/UI design, marketing, SEO, accessibility, performance, conversion. Crawls the site (up to 100 pages) via Playwright, generates detailed visual critique with actionable recommendations."
+description: "Full website audit — UX/UI design, marketing, SEO, accessibility, performance, conversion. Crawls the site (up to 100 pages) via cmux browser, generates detailed visual critique with actionable recommendations."
 ---
 
 # Bishx-Site: Full Website Audit
 
-Autonomous website audit skill. Crawls the site (up to 100 pages) via Playwright MCP, analyzes UX/UI design,
+Autonomous website audit skill. Crawls the site (up to 100 pages) via cmux browser, analyzes UX/UI design,
 marketing, SEO, accessibility, performance, conversion, brand consistency, and information
 architecture. Produces a single detailed visual critique document with actionable recommendations.
 
@@ -703,7 +703,7 @@ applying copy quality checks to legal documents, or demanding social proof on ch
 
 - Skipping Discovery phase
 - Limiting page coverage arbitrarily ("max 6 pages", "key pages only") — crawl up to max_pages (default 100), prioritizing by navigation hierarchy
-- Using `web_fetch` or `curl` instead of Playwright MCP — ALL browsing via `browser_*` tools
+- Using `web_fetch` without cmux browser — ALL browsing via cmux browser tools
 - Looking at source code or suggesting code changes
 - Using technical language ("change className", "add CSS", "modify component")
 - Referencing external websites as examples (no browsing competitors)
@@ -836,7 +836,7 @@ Do NOT summarize skill contents — pass them verbatim.
 /bishx:site [url]
      │
      ▼
-DISCOVER — Playwright crawl (up to max_pages), map site, classify business, cache snapshots
+DISCOVER — cmux browser crawl (up to max_pages), map site, classify business, cache snapshots
      │
      ▼
 ASK — AskUserQuestion: scope confirmation (Full / Visual / SEO / Custom)
@@ -942,8 +942,8 @@ Store resolved URL as `{site_url}`.
 
 ### MCP Verification
 
-Verify Playwright MCP is available by calling `browser_navigate` to `{site_url}`.
-If Playwright MCP is not available → STOP and tell user to configure it.
+Verify cmux browser is available by opening a browser surface: `cmux new-pane --type browser --url {site_url}`.
+If cmux browser is not available → STOP and tell user to configure it.
 
 ### Full Site Crawl
 
@@ -968,139 +968,67 @@ and why in `sitemap.md`.
 #### Step 1: Initial Crawl
 
 ```
-browser_navigate({site_url})
+SURFACE=$(cmux new-pane --type browser --url {site_url})
+cmux browser wait --surface $SURFACE --load-state complete
 ```
 
 #### Cookie Consent Dismissal
 
-Before taking any screenshots, dismiss cookie/GDPR banners:
+Before taking any snapshots, dismiss cookie/GDPR banners via snapshot + click:
 
 ```
-browser_evaluate(`
-  // Common cookie consent selectors
-  const selectors = [
-    '[class*="cookie"] button[class*="accept"]',
-    '[class*="cookie"] button[class*="agree"]',
-    '[class*="consent"] button[class*="accept"]',
-    '[id*="cookie"] button',
-    '[data-cookieconsent="accept"]',
-    '.cc-accept', '.cc-allow', '.cc-dismiss',
-    '#onetrust-accept-btn-handler',
-    '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-    'button[aria-label*="accept"]',
-    'button[aria-label*="Accept"]',
-    'button[aria-label*="agree"]',
-    // Russian cookie consent buttons
-    'button[aria-label*="принять"]', 'button[aria-label*="согласен"]'
-  ];
-  for (const sel of selectors) {
-    const btn = document.querySelector(sel);
-    if (btn) { btn.click(); break; }
-  }
-`)
+cmux browser snapshot --surface $SURFACE --interactive
+```
+Look in the snapshot for cookie consent button refs (labels: "Accept", "Agree", "Принять", "Согласен", "OK", "Хорошо", "Принимаю").
+If found, click the button:
+```
+cmux browser click --surface $SURFACE '{ref_of_accept_button}'
 ```
 
-Wait 1 second after dismissal for animation to complete:
-`browser_evaluate("await new Promise(r => setTimeout(r, 1000))")`
+Wait 1 second after dismissal for animation to complete — simply proceed (cmux browser handles timing).
 
 If no cookie banner found — proceed. This is best-effort, not a hard requirement.
 Run this ONCE at the start of Discovery, not on every page.
 
 #### Push Notification Prompt Dismissal
 
-Handle browser-level notification prompts via dialog handler.
+Handle browser-level notification prompts via snapshot + click.
 For in-page notification opt-ins:
-```javascript
-browser_evaluate(`
-  const dismissSelectors = [
-    '[class*="push-notification"] button:has-text("Не сейчас")',
-    '[class*="push-notification"] button:has-text("Нет")',
-    '[class*="notification-prompt"] .close',
-    'button:has-text("Позже")', 'button:has-text("No thanks")'
-  ];
-  for (const sel of dismissSelectors) {
-    const btn = document.querySelector(sel);
-    if (btn) { btn.click(); break; }
-  }
-`)
 ```
+cmux browser snapshot --surface $SURFACE --interactive
+```
+Look in snapshot for dismiss buttons (labels: "Не сейчас", "Нет", "Позже", "No thanks").
+If found: `cmux browser click --surface $SURFACE '{ref_of_dismiss_button}'`
 Best-effort. Run ONCE after cookie consent dismissal.
 
 #### Third-Party Widget Hiding
 
-After cookie consent dismissal, hide persistent floating widgets that would pollute screenshots:
+After cookie consent dismissal, note persistent floating widgets in the snapshot. Since cmux browser does not support JS execution, widgets cannot be hidden programmatically. Instead:
+- Take snapshot: `cmux browser snapshot --surface $SURFACE --interactive`
+- Identify floating widget refs (Intercom, Drift, Crisp, JivoSite, Telegram widget, LiveChat, etc.) in the snapshot
+- Note them in discovery.json: `"floating_widgets": ["intercom", ...]`
+- When analyzing page layouts, note if widget elements overlap content (document as a finding if so)
 
-```javascript
-browser_evaluate(`
-  // Common chat widgets and floating elements
-  const widgetSelectors = [
-    '#intercom-container', '.intercom-lightweight-app', '.intercom-app',
-    '[class*="drift-"]', '#drift-widget', '.drift-frame-controller',
-    '[class*="crisp-"]', '#crisp-chatbox',
-    '.hubspot-messages-iframe-container',
-    '[class*="tawk-"]', '#tawk-chat-widget',
-    '[class*="zendesk"]', '#launcher',
-    '.fb_dialog', '#fb-root iframe',
-    '[class*="livechat"]', '[id*="livechat"]',
-    // JivoSite
-    '#jivo-iframe-container', '.jivo_shadow_container', 'jdiv',
-    // Telegram widget
-    '[class*="telegram-widget"]', '#telegram-login-widget'
-  ];
-  let hidden = [];
-  for (const sel of widgetSelectors) {
-    document.querySelectorAll(sel).forEach(el => {
-      el.style.setProperty('display', 'none', 'important');
-      hidden.push(sel);
-    });
-  }
-  return hidden;
-`)
-```
+Note: Widget CSS hiding (via `display: none`) is not available without JS execution in cmux browser.
 
 Record hidden widgets in discovery.json: `"hidden_widgets": ["intercom", ...]`
 Note: Widgets are hidden for SCREENSHOT purposes only. The Accessibility module (Tier B) should test with widgets visible (they are part of the tab order).
 Before Tier B modules run, the Lead should note: "Widgets were hidden during Discovery screenshots. Tier B agents work with the live site where widgets are visible."
 
-#### Ad Banner Hiding (for screenshot clarity)
+#### Ad Banner Detection
 
-After widget hiding, optionally hide common ad banners to get clean screenshots:
-
-```javascript
-browser_evaluate(`
-  const adSelectors = [
-    '[class*="yandex_rtb"]', '[class*="ya-partner"]', '[id*="adfox"]',
-    '[class*="advert"]', '[class*="ad-banner"]', '[class*="ad-block"]',
-    '[data-ad]', '[data-advert]', 'ins.adsbygoogle',
-    '.native-ad', '.sponsored', '[class*="promoted"]',
-    '[class*="sticky-ad"]', '[class*="footer-ad"]',
-    'iframe[src*="doubleclick"]', 'iframe[src*="googlesyndication"]'
-  ];
-  let hidden = [];
-  for (const sel of adSelectors) {
-    document.querySelectorAll(sel).forEach(el => {
-      el.style.setProperty('display', 'none', 'important');
-      hidden.push(sel);
-    });
-  }
-  return hidden;
-`)
-```
-
-Record in discovery.json: `"hidden_ads": ["yandex_rtb", ...]`
-Performance module should measure WITH ads visible (not hidden) — ads impact real performance.
-Add note: "Ads are hidden for SCREENSHOT clarity only. Performance module tests the live site with ads active."
+Since cmux browser does not support JS execution, ad banners cannot be hidden programmatically. Instead:
+- Take snapshot: `cmux browser snapshot --surface $SURFACE --interactive`
+- Identify ad-related elements in snapshot (classes/IDs containing: yandex_rtb, adfox, advert, ad-banner, adsbygoogle, doubleclick, googlesyndication, native-ad, sponsored)
+- Note them in discovery.json: `"hidden_ads": ["yandex_rtb", ...]`
+- Performance module should measure ads as they appear — ads impact real performance.
+Add note: "Ad presence documented from snapshot. Performance module tests the live site with ads active."
 
 #### CallTracking Detection
 
-Check for common call tracking scripts:
-```javascript
-browser_evaluate(`
-  const scripts = [...document.querySelectorAll('script[src]')].map(s => s.src);
-  const ctPatterns = ['calltouch', 'comagic', 'roistat', 'callibri', 'mango-office', 'calltracking', 'ringostat'];
-  const detected = ctPatterns.filter(p => scripts.some(s => s.includes(p)));
-  return detected;
-`)
+Check for common call tracking scripts via HTML source:
+```bash
+curl -s "{site_url}" | grep -oiE '(calltouch|comagic|roistat|callibri|mango-office|calltracking|ringostat)'
 ```
 
 Record in discovery.json: `"calltracking_detected": true/false, "calltracking_service": "calltouch"`
@@ -1108,22 +1036,12 @@ When calltracking is detected, add to discovery.json: `"calltracking_note": "Pho
 
 #### Geo-Detection Check
 
-Check if the site shows geo-dependent content:
-```javascript
-browser_evaluate(`
-  // Check for city selection modals/elements
-  const geoPatterns = [
-    '[class*="city-select"]', '[class*="geo-"]', '[class*="location-select"]',
-    '[data-city]', '[data-region]',
-    'button:has-text("Выберите город")', 'button:has-text("Ваш город")'
-  ];
-  for (const sel of geoPatterns) {
-    const el = document.querySelector(sel);
-    if (el) return { detected: true, selector: sel, currentCity: el.textContent.trim() };
-  }
-  return { detected: false };
-`)
+Check if the site shows geo-dependent content via snapshot:
 ```
+cmux browser snapshot --surface $SURFACE --interactive
+```
+Look in snapshot for city selection elements (labels/text: "Выберите город", "Ваш город", "Select city") or geo-related button refs.
+If found: note detected=true and current city text in discovery.json.
 
 Record in discovery.json: `"geo_detection": {"detected": true, "current_city": "Moscow"}`
 Add to ALL module reports: "⚠️ The site uses geo-detection. Audit was conducted for city: {city}. Content and results may differ for other regions."
@@ -1132,26 +1050,14 @@ Add to ALL module reports: "⚠️ The site uses geo-detection. Audit was conduc
 
 After initial page load, check if the site requires user input to show content:
 
-```javascript
-browser_evaluate(`
-  const links = document.querySelectorAll('a[href]');
-  const internalLinks = [...links].filter(l => l.href.startsWith(window.location.origin));
-  const hasContentLinks = internalLinks.length > 10;
-  // Detect ALL form inputs on the page
-  const inputs = document.querySelectorAll('input[type="text"], input[type="search"], input[type="date"], select, [role="combobox"], [role="searchbox"], input[placeholder]');
-  const inputFields = [...inputs].map(i => ({
-    placeholder: i.placeholder || i.getAttribute('aria-label') || i.name || '',
-    type: i.type || i.tagName.toLowerCase(),
-    required: i.required || i.getAttribute('aria-required') === 'true'
-  }));
-  const hasInputGate = !hasContentLinks && inputFields.length > 0;
-  return {
-    gated: !!hasInputGate,
-    compound: inputFields.length > 1,
-    fields: inputFields
-  };
-`)
+Use snapshot to detect input gates:
 ```
+cmux browser snapshot --surface $SURFACE --interactive
+```
+In the snapshot, check:
+- Are there fewer than 10 internal links visible?
+- Are there form input elements (text, search, date, select, combobox) prominently displayed?
+If yes → site is likely input-gated.
 
 If input-gated:
 1. Record in discovery.json: `"input_gated": true, "gate_type": "single|compound", "gate_fields": [{placeholder, type}]`
@@ -1163,55 +1069,22 @@ If input-gated:
    {field2.placeholder}: ___
    {field3.placeholder}: ___
    Enter values for a complete audit, or skip."
-4. If user provides values: fill ALL inputs via `browser_type`/`browser_select_option`, submit, wait 3 seconds, continue crawl from populated state
+4. If user provides values: fill ALL inputs via `cmux browser type --surface $SURFACE '{ref}' '{text}'`, submit via `cmux browser click --surface $SURFACE '{submit_ref}'`, wait for load, continue crawl from populated state
 5. If user skips: proceed with limited crawl, note in SITE-REVIEW.md: "⚠️ Content behind the input form ({N} fields) was not evaluated."
 
 ```
-browser_take_screenshot() → save to {run_dir}/screenshots/homepage-desktop.png
-browser_snapshot() → save to {run_dir}/snapshots/homepage.txt
+cmux read-screen --surface $SURFACE  → save output to {run_dir}/screenshots/homepage-desktop.txt
+cmux browser snapshot --surface $SURFACE --interactive  → save output to {run_dir}/snapshots/homepage.txt
 ```
 
-Extract ALL links via `browser_evaluate`:
-```javascript
-[...document.querySelectorAll('a[href]')].map(a => ({
-  href: a.href,
-  text: a.textContent.trim().slice(0, 100),
-  inNav: !!a.closest('nav, [role="navigation"]'),
-  inFooter: !!a.closest('footer')
-})).filter(l => l.href.startsWith(window.location.origin))
-```
-
-Build a link queue. Add every unique internal path.
+Extract ALL links via snapshot analysis:
+From the snapshot, collect all link elements with their href, text, and context (nav/footer position). Build a link queue. Add every unique internal path.
 
 #### SPA Route Discovery
 
-After extracting `<a href>` links, also discover SPA routes:
-
-```javascript
-browser_evaluate(`
-  // Check for common SPA routers
-  const routes = new Set();
-
-  // React Router: check for data-* attributes on links
-  document.querySelectorAll('[data-href], [data-to], [data-path]').forEach(el => {
-    const href = el.dataset.href || el.dataset.to || el.dataset.path;
-    if (href && href.startsWith('/')) routes.add(window.location.origin + href);
-  });
-
-  // Check onclick handlers that navigate
-  document.querySelectorAll('[onclick*="navigate"], [onclick*="push"], [onclick*="href"]').forEach(el => {
-    const match = el.getAttribute('onclick').match(/['"](\\/[^'"]+)['"]/);
-    if (match) routes.add(window.location.origin + match[1]);
-  });
-
-  // Check for Next.js prefetch links
-  document.querySelectorAll('link[rel="prefetch"][href^="/"]').forEach(el => {
-    routes.add(window.location.origin + el.href);
-  });
-
-  return [...routes];
-`)
-```
+After extracting `<a href>` links from the snapshot, also discover SPA routes:
+- From snapshot output, look for elements with `data-href`, `data-to`, `data-path` attributes containing path values
+- Check HTML source for Next.js prefetch links: `curl -s "{site_url}" | grep -oE 'href="(/[^"]*)"' | sort -u`
 
 Add any discovered SPA routes to the crawl queue. Note in `sitemap.md` which routes were discovered via SPA detection vs. `<a>` tags.
 
@@ -1219,26 +1092,20 @@ This is best-effort — some SPA routes are only discoverable by clicking naviga
 
 #### Animation Framework Detection
 
-```javascript
-browser_evaluate(`({
-  canvasCount: document.querySelectorAll('canvas').length,
-  hasGSAP: typeof gsap !== 'undefined',
-  hasThreeJS: typeof THREE !== 'undefined',
-  hasLottie: typeof lottie !== 'undefined' || !!document.querySelector('[class*="lottie"]'),
-  framework: typeof gsap !== 'undefined' ? 'GSAP' : typeof anime !== 'undefined' ? 'anime.js' : 'none'
-})`)
+Check via HTML source and snapshot:
+```bash
+curl -s "{site_url}" | grep -oiE '(gsap|three\.js|lottie|anime\.js)'
 ```
+Also check snapshot for `canvas` elements and `[class*="lottie"]` elements.
 
 Record in discovery.json: `"animation_frameworks": {"gsap": true, "threejs": false, ...}`
 If WebGL/Three.js detected, add to ALL Tier A reports: "⚠️ The site uses WebGL/Canvas. Screenshots may not accurately represent 3D content."
 
 #### Step 1.5: Fetch Site Infrastructure
 
-```
-browser_navigate({site_url}/robots.txt)
-browser_snapshot() → save content to {run_dir}/robots.txt
-browser_navigate({site_url}/sitemap.xml)
-browser_snapshot() → save content to {run_dir}/sitemap.xml (may not exist — note if 404)
+```bash
+curl -s "{site_url}/robots.txt" > {run_dir}/robots.txt
+curl -s "{site_url}/sitemap.xml" > {run_dir}/sitemap.xml  # may return 404 — check response
 ```
 
 Add paths to `discovery.json`: `robots_txt_path` and `sitemap_xml_path`.
@@ -1249,77 +1116,53 @@ If sitemap.xml contains additional URLs not found via link crawling, add them to
 For EACH unique route in the queue (up to `max_pages`):
 
 ```
-browser_navigate(url)
-browser_snapshot() → save full text to {run_dir}/snapshots/{page_slug}.txt
-browser_take_screenshot() → {run_dir}/screenshots/{page_slug}-desktop.png
+cmux browser navigate --surface $SURFACE --url {url}
+cmux browser wait --surface $SURFACE --load-state complete
+cmux browser snapshot --surface $SURFACE --interactive  → save to {run_dir}/snapshots/{page_slug}.txt
+cmux read-screen --surface $SURFACE  → save to {run_dir}/screenshots/{page_slug}-desktop.txt
 ```
 
 **Note:** Scroll capture is NOT done here. It happens in Step 4 (Post-Interaction Scroll Capture) AFTER interactive testing has revealed hidden content (expanded accordions, loaded "load more" content, etc.).
 
 ```
-browser_resize(375, 812)
-browser_take_screenshot() → {run_dir}/screenshots/{page_slug}-mobile.png
+cmux browser resize --surface $SURFACE --width 375 --height 812
+cmux read-screen --surface $SURFACE  → save to {run_dir}/screenshots/{page_slug}-mobile.txt
 
-// Tablet viewport
-browser_resize(768, 1024)
-browser_take_screenshot() → {run_dir}/screenshots/{page_slug}-tablet.png
-browser_resize(1440, 900) // restore desktop
+# Tablet viewport
+cmux browser resize --surface $SURFACE --width 768 --height 1024
+cmux read-screen --surface $SURFACE  → save to {run_dir}/screenshots/{page_slug}-tablet.txt
+cmux browser resize --surface $SURFACE --width 1440 --height 900  # restore desktop
 ```
 
 Tablet scroll capture is NOT needed (desktop scroll captures cover the content). Tablet screenshot is for responsive layout evaluation only.
 
-Also extract and save page metadata. Before extracting, wait for SPA hydration:
+Also extract and save page metadata. Wait for SPA hydration using cmux browser wait:
 
 ```
-// For SPA sites: wait for hydration before extracting metadata
-browser_evaluate("await new Promise(r => setTimeout(r, 2000))")
+cmux browser wait --surface $SURFACE --load-state complete
 ```
 
-This 2-second wait ensures client-side frameworks (React, Vue, Angular) have completed hydration and injected dynamic meta tags, JSON-LD, and OG tags.
+Then extract metadata via snapshot and curl:
 
 ```
-// Additional wait for page transition animations (GSAP, CSS transitions)
-browser_evaluate(`
-  await new Promise(r => setTimeout(r, 1500));
-  if (typeof gsap !== 'undefined' && gsap.globalTimeline) {
-    let attempts = 0;
-    while (gsap.globalTimeline.isActive() && attempts < 6) {
-      await new Promise(r => setTimeout(r, 500));
-      attempts++;
-    }
-  }
-`)
+cmux browser snapshot --surface $SURFACE --interactive  → analyze for title, h1, meta description, links, form elements, interactive elements
 ```
 
-Note: This ensures screenshots capture final state, not mid-transition. The GSAP check prevents infinite wait (max 3 additional seconds).
-
-Then extract via `browser_evaluate`:
-```javascript
-({
-  title: document.title,
-  h1: document.querySelector('h1')?.textContent?.trim() || '',
-  metaDesc: document.querySelector('meta[name="description"]')?.content || '',
-  canonical: document.querySelector('link[rel="canonical"]')?.href || '',
-  ogTitle: document.querySelector('meta[property="og:title"]')?.content || '',
-  ogDesc: document.querySelector('meta[property="og:description"]')?.content || '',
-  ogImage: document.querySelector('meta[property="og:image"]')?.content || '',
-  jsonLd: [...document.querySelectorAll('script[type="application/ld+json"]')].map(s => s.textContent),
-  lang: document.documentElement.lang || '',
-  viewport: document.querySelector('meta[name="viewport"]')?.content || '',
-  wordCount: document.body.innerText.trim().split(/\s+/).length,
-  pageType: (() => {
-    const url = window.location.pathname;
-    const h1 = document.querySelector('h1')?.textContent?.trim() || '';
-    const hasForms = document.querySelectorAll('form').length;
-    const hasProducts = document.querySelectorAll('[class*="product"], [class*="card"], [class*="item"]').length > 5;
-    const hasArticle = !!document.querySelector('article, [class*="article"], [class*="post"]');
-    const hasPricing = !!document.querySelector('[class*="pricing"], [class*="price"], [class*="plan"]');
-    const hasTable = document.querySelectorAll('table').length;
-    const hasMap = !!document.querySelector('[class*="map"], iframe[src*="maps"]');
-    return { url, h1, hasForms, hasProducts, hasArticle, hasPricing, hasTable: hasTable > 0, hasMap };
-  })()
-})
+For meta tags not visible in snapshot, use curl:
+```bash
+curl -s "{url}" | grep -E '<title>|<meta name="description"|<link rel="canonical"|<meta property="og:|<script type="application/ld\+json"|<html lang'
 ```
+
+Extract from HTML source:
+- `title`: from `<title>` tag
+- `h1`: from `<h1>` tag text
+- `metaDesc`: from `<meta name="description" content="..."`
+- `canonical`: from `<link rel="canonical" href="..."`
+- `ogTitle`, `ogDesc`, `ogImage`: from `<meta property="og:*"`
+- `jsonLd`: from `<script type="application/ld+json">` blocks
+- `lang`: from `<html lang="..."`
+- `viewport`: from `<meta name="viewport" content="..."`
+- `wordCount`: estimate from snapshot text content length
 
 Save metadata per page into `discovery.json.pages[]`.
 
@@ -1347,23 +1190,18 @@ Continue until queue is empty or `max_pages` reached.
 #### Auth-Gated Content Detection
 
 During crawl, detect pages that redirect to login:
-- If `browser_navigate(url)` results in a URL change to a login/register page, record the original URL as auth-gated
+- If `cmux browser navigate --surface $SURFACE --url {url}` results in loading a login/register page (check snapshot/read-screen for login form), record the original URL as auth-gated
 - Record in discovery.json: `"auth_gated_pages": ["/dashboard", "/account", "/courses/viewer"]`
 - In SITE-REVIEW.md, include a prominent section: "Pages behind authentication (not evaluated): {list}. Credentials are required to audit these pages."
 - Do NOT attempt to log in. Do NOT ask user for credentials. Simply document what was found and what was not auditable.
 
 #### Infinite Scroll Detection
 
-After initial page load, check for infinite scroll:
-```javascript
-browser_evaluate(`
-  const height1 = document.documentElement.scrollHeight;
-  window.scrollTo(0, height1 - 100);
-  await new Promise(r => setTimeout(r, 2000));
-  const height2 = document.documentElement.scrollHeight;
-  return { infinite: height2 > height1 + 500, initial: height1, after: height2 };
-`)
-```
+After initial page load, check for infinite scroll via snapshot observation:
+- Take initial snapshot: `cmux browser snapshot --surface $SURFACE --interactive`
+- Scroll by reading screen: `cmux read-screen --surface $SURFACE`
+- Note if the snapshot reveals a feed/list structure with `load more` triggers or dynamic loading patterns
+- Infinite scroll heuristic: if page contains a list/feed structure with no visible "last page" pagination, assume infinite scroll possible
 
 If infinite scroll detected:
 - Do NOT scroll to "bottom" — there is no bottom
@@ -1374,16 +1212,9 @@ If infinite scroll detected:
 
 #### Step 2.5: Template Grouping
 
-After crawling 10+ pages, detect template patterns:
-
-```javascript
-browser_evaluate(`
-  // Extract page structural signature (tag sequence of main content area)
-  const main = document.querySelector('main, [role="main"], .content, #content, article') || document.body;
-  const signature = [...main.children].map(el => el.tagName + (el.className ? '.' + el.className.split(' ').slice(0,2).join('.') : '')).join('|');
-  return signature;
-`)
-```
+After crawling 10+ pages, detect template patterns from snapshot structure:
+- Compare snapshot structural output across pages — look for repeated heading patterns, element hierarchies, and URL patterns (e.g., `/product/123`, `/product/456` → same template)
+- Group pages by URL pattern and structural similarity
 
 Group pages with identical structural signatures into template groups.
 
@@ -1466,74 +1297,39 @@ Motion/hover capture (Step 3.5) uses a subset of these — the top 10 by the sam
 For EACH page (within the interactive testing scope), interact with EVERY element:
 
 **Buttons and clickables:**
-- `browser_click` every button that opens modals, dropdowns, menus, sidebars
-- `browser_take_screenshot` of each opened state
-- `browser_press_key("Escape")` to close, verify it closes
+- `cmux browser click --surface $SURFACE '{ref}'` every button that opens modals, dropdowns, menus, sidebars
+- `cmux read-screen --surface $SURFACE` to capture each opened state
+- Click close/X button or read-screen to verify it closes
 
 **Forms:**
-- Find every form on the site
-- Extract form structure via `browser_evaluate`:
-  ```javascript
-  [...document.querySelectorAll('form')].map(f => ({
-    action: f.action,
-    method: f.method,
-    fields: [...f.querySelectorAll('input,textarea,select')].map(el => ({
-      name: el.name, type: el.type, required: el.required,
-      label: (el.labels?.[0]?.textContent?.trim() || el.placeholder || '')
-    })),
-    submit_text: (f.querySelector('button[type="submit"],input[type="submit"]')?.textContent?.trim() || '')
-  }))
-  ```
+- Find every form on the site via snapshot
+- Extract form structure from snapshot: identify all input, textarea, select elements with their labels, placeholders, required state, and submit button text
 - Store extracted forms in `discovery.json.pages[].forms`
 - Document: fields, labels, placeholders, required markers, submit button text
-- Check validation states: submit empty → screenshot error states
-- Check field types, autofill behavior
+- Check validation states: click submit without filling → read-screen for error states
+- Check field types visible in snapshot
 
 #### Masked Content Detection
 
 Look for buttons that reveal hidden content (common on real estate, marketplaces):
-```javascript
-browser_evaluate(`
-  const revealPatterns = [
-    'показать телефон', 'показать номер', 'show phone', 'show number',
-    'показать email', 'показать контакт', 'show contact',
-    'раскрыть', 'развернуть', 'показать полностью', 'read more', 'читать далее'
-  ];
-  const buttons = [...document.querySelectorAll('button, a, [role="button"]')];
-  return buttons.filter(b => {
-    const text = b.textContent.toLowerCase().trim();
-    return revealPatterns.some(p => text.includes(p));
-  }).map(b => ({ text: b.textContent.trim(), selector: b.tagName + (b.className ? '.' + b.className.split(' ')[0] : '') }));
-`)
-```
+
+From the snapshot, find button elements with labels matching reveal patterns:
+- Russian: "показать телефон", "показать номер", "показать email", "показать контакт", "раскрыть", "развернуть", "показать полностью", "читать далее"
+- English: "show phone", "show number", "show contact", "read more"
 
 For each detected masked content button (on interactive testing pages):
-1. Click the button: `browser_click`
-2. Wait 1 second
-3. Take screenshot of revealed state: `{page_slug}-revealed-{element}.png`
-4. Record revealed content in discovery.json per page: `"revealed_content": [{"trigger": "Show phone", "content": "+7 999 123-45-67"}]`
+1. Click the button: `cmux browser click --surface $SURFACE '{ref}'`
+2. Read screen of revealed state: `cmux read-screen --surface $SURFACE`
+3. Record revealed content in discovery.json per page: `"revealed_content": [{"trigger": "Show phone", "content": "+7 999 123-45-67"}]`
 
 #### Interactive Controls Detection (beyond <form>)
 
 Detect interactive filter/calculator widgets that are NOT wrapped in <form> tags:
-```javascript
-browser_evaluate(`
-  const controls = [];
-  // Range sliders
-  document.querySelectorAll('input[type="range"], [role="slider"]').forEach(el => {
-    controls.push({ type: 'range', label: el.getAttribute('aria-label') || el.name || '', page_section: el.closest('section, aside, [role="search"]')?.className || '' });
-  });
-  // Select dropdowns outside forms
-  document.querySelectorAll('select:not(form select), [role="listbox"]:not(form *)').forEach(el => {
-    controls.push({ type: 'select', label: el.getAttribute('aria-label') || el.name || '' });
-  });
-  // Checkbox/radio groups outside forms
-  document.querySelectorAll('[role="group"]:has(input[type="checkbox"]), [role="radiogroup"]').forEach(el => {
-    controls.push({ type: 'filter-group', label: el.getAttribute('aria-label') || '' });
-  });
-  return controls;
-`)
-```
+
+From the snapshot, identify:
+- Range sliders: elements with `role="slider"` or `type="range"`
+- Select dropdowns outside forms: `role="listbox"` elements
+- Checkbox/radio groups: `role="group"`, `role="radiogroup"`
 
 Record in discovery.json per page: `"interactive_controls": [{type, label, page_section}]`
 Note: These controls cannot be tested by Tier A modules. Accessibility (Tier B) should test their keyboard navigability.
@@ -1550,10 +1346,10 @@ If business_type in [ecommerce, marketplace, food_delivery]:
 This gives modules populated checkout views instead of empty-cart states.
 
 **Navigation:**
-- Mobile menu: `browser_resize(375, 812)` → find and click hamburger menu
-- Dropdown menus: hover/click each nav item with submenus
+- Mobile menu: `cmux browser resize --surface $SURFACE --width 375 --height 812` → find hamburger menu ref in snapshot → `cmux browser click --surface $SURFACE '{hamburger_ref}'`
+- Dropdown menus: click each nav item with submenus via snapshot refs
 - Tab bars, sidebars, breadcrumbs
-- `browser_resize(1440, 900)` → restore desktop
+- `cmux browser resize --surface $SURFACE --width 1440 --height 900` → restore desktop
 
 **Dynamic content:**
 - Scroll to bottom of each page → check for lazy-loaded content
@@ -1562,20 +1358,22 @@ This gives modules populated checkout views instead of empty-cart states.
 
 **States:**
 - Empty states (if data-dependent pages, note what they show with no data)
-- Loading states (observe during navigation transitions)
+- Loading states (observe during navigation transitions via `cmux read-screen`)
 - Error states (navigate to non-existent routes → 404 page)
-- Hover states: `browser_hover` on key interactive elements
+- Hover states: not directly available in cmux browser — use `cmux browser click` as substitute where applicable
 
 #### Step 3.5: Motion & Hover Capture Pass
 
 On up to 10 key pages (homepage + main nav pages + primary conversion pages):
 
 **Hover state capture:**
-For each page, identify 3-5 key interactive elements (primary CTA, nav links, cards):
+
+Note: cmux browser does not support hover. Use click as a substitute where hover triggers state change:
 ```
-browser_hover(element) → wait 500ms
-browser_take_screenshot() → {run_dir}/screenshots/{page_slug}-hover-{element_desc}.png
+cmux browser click --surface $SURFACE '{element_ref}'  → observe state change via read-screen
+cmux read-screen --surface $SURFACE → save as {run_dir}/screenshots/{page_slug}-hover-{element_desc}.txt
 ```
+For hover states not triggerable by click, note in motion-notes.md as "hover state not capturable — cmux browser limitation".
 
 **Page transition observation:**
 Navigate between 3-5 pages in sequence. After each navigation, note:
@@ -1601,72 +1399,41 @@ Save transition observations to `{run_dir}/motion-notes.md`:
 ```
 
 **Scroll animation detection:**
-On 3-5 key pages, scroll slowly from top to bottom:
-```
-browser_evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
-// Scroll in 500px increments, pausing 1s at each position
-for position in [500, 1000, 1500, 2000, ...page_height]:
-  browser_evaluate("window.scrollTo({top: {position}, behavior: 'smooth'})")
-  browser_evaluate("await new Promise(r => setTimeout(r, 1000))")
-  // If visual change detected, take screenshot
-```
+
+Note: cmux browser does not support JS-based scrolling. Use cmux read-screen at initial load position. Scroll animations cannot be triggered — note this limitation in motion-notes.md: "Scroll animations not testable — cmux browser does not support JS scrollTo."
 
 This data feeds UX Design Dimension 6 (Motion & Micro-interactions).
 Tier A modules can read `{run_dir}/motion-notes.md` and hover screenshots from cache.
 
 #### Step 3.6: Theme/Dark Mode Detection
 
-Check for theme toggle:
-```javascript
-browser_evaluate(`
-  const toggleSelectors = [
-    '[data-theme]', 'button[aria-label*="dark"]', 'button[aria-label*="theme"]',
-    'button[aria-label*="тёмн"]', 'button[aria-label*="тем"]',
-    '.theme-toggle', '.dark-mode-toggle', '#theme-toggle',
-    'button[class*="theme"]', 'button[class*="dark"]'
-  ];
-  for (const sel of toggleSelectors) {
-    const el = document.querySelector(sel);
-    if (el) return { found: true, selector: sel, currentTheme: document.documentElement.dataset.theme || 'unknown' };
-  }
-  return { found: false };
-`)
+Check for theme toggle via snapshot:
 ```
+cmux browser snapshot --surface $SURFACE --interactive
+```
+Look in snapshot for theme toggle buttons (labels/aria: "dark mode", "dark", "theme", "тёмн", "тем").
 
 If theme toggle found:
-1. Click the toggle: `browser_click` on the detected selector
-2. Wait 1 second for transition
-3. Re-capture screenshots for up to 10 key pages (homepage + depth-1 nav pages):
-   - `{page_slug}-desktop-dark.png`
-   - `{page_slug}-mobile-dark.png`
-4. Click toggle again to restore original theme
-5. Record in discovery.json: `"dark_mode": {"detected": true, "toggle_selector": "...", "pages_captured": [...]}`
+1. Click the toggle: `cmux browser click --surface $SURFACE '{toggle_ref}'`
+2. Read screen for up to 10 key pages (homepage + depth-1 nav pages):
+   - Save `cmux read-screen --surface $SURFACE` output as `{page_slug}-desktop-dark.txt`
+3. Click toggle again to restore original theme
+4. Record in discovery.json: `"dark_mode": {"detected": true, "pages_captured": [...]}`
 
 Tier A modules (UX Design, Brand Consistency, Accessibility) should analyze BOTH theme screenshots when available.
 If no toggle found: `"dark_mode": {"detected": false}`. Skip dual capture.
 
 #### Visually Impaired Version Detection (GOST R 52872-2019)
 
-Check for "version for visually impaired" toggle (Russian government/institutional sites):
-
-```javascript
-browser_evaluate(`
-  const bviSelectors = [
-    'button.bvi-open', '.bvi-panel', '[class*="special-version"]',
-    'a:has-text("Версия для слабовидящих")', 'button:has-text("Для слабовидящих")',
-    '[class*="blind"]', '[class*="visually-impaired"]', '[id*="bvi"]'
-  ];
-  for (const sel of bviSelectors) {
-    const el = document.querySelector(sel);
-    if (el) return { found: true, selector: sel };
-  }
-  return { found: false };
-`)
+Check for "version for visually impaired" toggle (Russian government/institutional sites) via snapshot:
 ```
+cmux browser snapshot --surface $SURFACE --interactive
+```
+Look in snapshot for BVI toggle buttons (labels: "Версия для слабовидящих", "Для слабовидящих").
 
 If found:
-1. Click the toggle, wait 2 seconds
-2. Capture screenshots for up to 5 key pages: `{page_slug}-desktop-bvi.png`
+1. Click the toggle: `cmux browser click --surface $SURFACE '{bvi_toggle_ref}'`
+2. Read screen for up to 5 key pages and save as `{page_slug}-desktop-bvi.txt`
 3. Restore normal version
 4. Record: `"visually_impaired_version": {"detected": true}`
 5. Accessibility module evaluates BOTH versions
@@ -1677,24 +1444,17 @@ If found:
 
 For EACH page (desktop only):
 
+Note: cmux browser does not support JS-based scrolling. Use `cmux read-screen --surface $SURFACE` at initial load position to capture visible content. Scroll capture is limited to the initial viewport.
+
+For each page, capture:
 ```
-// Get total page height (now reflects expanded/loaded content)
-page_height = browser_evaluate("document.documentElement.scrollHeight")
-viewport_height = 900
-scroll_position = viewport_height
-
-while scroll_position < page_height:
-  browser_evaluate("window.scrollTo(0, {scroll_position})")
-  browser_take_screenshot() → {run_dir}/screenshots/{page_slug}-desktop-scroll-{N}.png
-  scroll_position += viewport_height
-
-// Scroll back to top
-browser_evaluate("window.scrollTo(0, 0)")
+cmux read-screen --surface $SURFACE → save as {run_dir}/screenshots/{page_slug}-desktop-scroll-1.txt
+cmux browser snapshot --surface $SURFACE --interactive → save as {run_dir}/snapshots/{page_slug}.txt
 ```
 
-This gives Tier A modules visual evidence for the ENTIRE page, not just above-fold.
-Naming: `{page_slug}-desktop-scroll-1.png`, `{page_slug}-desktop-scroll-2.png`, etc.
-Do NOT scroll-capture on mobile viewport (too many screenshots). Mobile gets one viewport screenshot only.
+This gives Tier A modules the accessibility tree of the ENTIRE page (snapshot contains all DOM content, not just above-fold).
+Naming: `{page_slug}-desktop-scroll-1.txt`
+Do NOT attempt scroll capture on mobile viewport.
 
 **Limits:** Max 5 scroll screenshots per page. Max 150 scroll screenshots total across the site. If a page exceeds 5 viewport heights, capture the first 3 and the last 2 (top + bottom of page). Skip scroll capture entirely on pages shorter than 2 viewports.
 
@@ -1706,8 +1466,9 @@ For EACH page, test at minimum:
 
 At each viewport:
 ```
-browser_resize(width, height)
-browser_take_screenshot()
+cmux browser resize --surface $SURFACE --width {width} --height {height}
+cmux read-screen --surface $SURFACE
+cmux browser snapshot --surface $SURFACE --interactive
 ```
 
 Note any differences in layout, hidden/shown elements, navigation changes.
@@ -1988,22 +1749,22 @@ Store selected modules in `state.json.selected_modules`. Adjust `modules_total` 
 
 ### Browser Sharing Architecture
 
-Playwright MCP is a single browser instance. Multiple agents CANNOT use it simultaneously.
+cmux browser is a single browser surface. Multiple agents CANNOT use it simultaneously.
 Solution: two-tier execution model.
 
 **Tier A — Cache-based modules (no live browser needed):**
-These modules work from Discovery cache (screenshots, snapshots, discovery.json, sitemap.md).
-They analyze existing data and do NOT call any `browser_*` tools.
+These modules work from Discovery cache (screen reads, snapshots, discovery.json, sitemap.md).
+They analyze existing data and do NOT call any cmux browser tools.
 Can run in parallel — they don't touch the browser.
 
-**Tier B — Live browser modules (need Playwright):**
+**Tier B — Live browser modules (need cmux browser):**
 These modules MUST interact with the live site (keyboard navigation, performance measurement).
 Run sequentially — one at a time, exclusive browser access.
 
 ### Discovery Cache
 
 Phase 0 DISCOVER stores everything agents need:
-- `{run_dir}/screenshots/` — desktop + tablet + mobile screenshots of every page, plus desktop scroll screenshots (`{page}-desktop-scroll-*.png`) for full-page visual analysis, and hover state screenshots (`{page}-hover-*.png`)
+- `{run_dir}/screenshots/` — desktop + tablet + mobile screen reads of every page, plus desktop scroll reads (`{page}-desktop-scroll-*.txt`) for full-page visual analysis, and hover state reads (`{page}-hover-*.txt`)
 - `{run_dir}/snapshots/` — accessibility tree snapshot of every page (saved as .txt)
 - `{run_dir}/discovery.json` — full site structure, interactive elements, page metadata
 - `{run_dir}/sitemap.md` — human-readable site map
@@ -2011,14 +1772,15 @@ Phase 0 DISCOVER stores everything agents need:
 
 During Discovery, for EACH page, Lead saves:
 ```
-browser_navigate(url)
-browser_snapshot() → save to {run_dir}/snapshots/{page_name}.txt
-browser_take_screenshot() → save to {run_dir}/screenshots/{page_name}-desktop.png
-browser_resize(375, 812)
-browser_take_screenshot() → save to {run_dir}/screenshots/{page_name}-mobile.png
-browser_resize(768, 1024)
-browser_take_screenshot() → save to {run_dir}/screenshots/{page_name}-tablet.png
-browser_resize(1440, 900)
+cmux browser navigate --surface $SURFACE --url {url}
+cmux browser wait --surface $SURFACE --load-state complete
+cmux browser snapshot --surface $SURFACE --interactive → save to {run_dir}/snapshots/{page_name}.txt
+cmux read-screen --surface $SURFACE → save to {run_dir}/screenshots/{page_name}-desktop.txt
+cmux browser resize --surface $SURFACE --width 375 --height 812
+cmux read-screen --surface $SURFACE → save to {run_dir}/screenshots/{page_name}-mobile.txt
+cmux browser resize --surface $SURFACE --width 768 --height 1024
+cmux read-screen --surface $SURFACE → save to {run_dir}/screenshots/{page_name}-tablet.txt
+cmux browser resize --surface $SURFACE --width 1440 --height 900
 ```
 
 This cached data is sufficient for 7 of 9 modules.
@@ -2637,7 +2399,7 @@ After emitting `<bishx-site-complete>`:
 discover → ask → execute (wave 1 → wave 2) → synthesize → report → complete
 ```
 
-- `discover` — Playwright crawl, cache snapshots/screenshots, classify business
+- `discover` — cmux browser crawl, cache snapshots/screen reads, classify business
 - `ask` — AskUserQuestion for scope confirmation (waiting_for = "scope_selection")
 - `execute` — Wave 1: Tier A parallel (cache-based). Wave 2: Tier B sequential (live browser)
 - `synthesize` — Aggregate scores, diff, cross-reference findings

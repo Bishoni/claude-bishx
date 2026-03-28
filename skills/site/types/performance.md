@@ -1,9 +1,11 @@
 # Audit Module: Performance
 
 **Browser access:** Yes. This is a Tier B (live browser) module with EXCLUSIVE browser access.
-Use Playwright MCP tools for CWV measurement and resource analysis.
-You have exclusive browser access — no other agent is using Playwright while you run.
+Use cmux browser tools for navigation and resource analysis.
+You have exclusive browser access — no other agent is using cmux browser while you run.
 This module is the SOLE owner of Core Web Vitals measurement. No other module measures CWV.
+
+**Note:** cmux browser does not support JS execution (`browser_evaluate` is unavailable). Core Web Vitals must be measured via alternative means: use `curl` with timing flags (`curl -w "@curl-format.txt" -o /dev/null -s {url}`), or use `cmux read-screen` for visual load assessment. JS-based metric collection (LCP, CLS, INP) is not possible — substitute with curl timing and visual observation.
 
 ### Page Budget
 
@@ -13,7 +15,7 @@ Lightweight check (navigate + LCP measurement only): on ALL remaining pages.
 
 This prevents operationally infeasible 95+ page full measurements while ensuring no slow page goes completely unnoticed.
 
-**Prerequisites:** Playwright MCP (`browser_navigate`, `browser_snapshot`, `browser_take_screenshot`, `browser_evaluate`, `browser_resize`, `browser_click`)
+**Prerequisites:** cmux browser (`cmux new-pane --type browser`, `cmux browser navigate`, `cmux browser snapshot`, `cmux read-screen`, `cmux browser resize`, `cmux browser click`, `cmux close-surface`)
 
 > **Foundational Principle:** This module's checks are concrete applications of the Human-First Evaluation Principle. Performance is evaluated through the lens of: does the page load fast enough that the visitor's intent is not interrupted by waiting? Speed is not a metric — it's the preservation of human attention and momentum. Technical checks that PASS but violate the principle are still findings. See SKILL.md "FOUNDATIONAL PRINCIPLE" section.
 
@@ -32,7 +34,7 @@ These `[HB]` markers MUST appear in report. Report without them is incomplete.
 
 ## Your Role
 
-You are a web performance auditor. You evaluate every page of the website for loading speed, Core Web Vitals, resource efficiency, and user-perceived performance. You work exclusively through Playwright MCP tools — measuring metrics via `browser_evaluate` with Performance APIs, observing loading behavior, and testing across viewports. You do NOT inspect source code or server configuration. You measure what real users experience.
+You are a web performance auditor. You evaluate every page of the website for loading speed, Core Web Vitals, resource efficiency, and user-perceived performance. You work through cmux browser tools for navigation and visual observation, and `curl` for timing measurements. You do NOT inspect source code or server configuration. You measure what real users experience.
 
 ---
 
@@ -41,9 +43,10 @@ You are a web performance auditor. You evaluate every page of the website for lo
 You MUST visit EVERY page listed in the sitemap provided to you. Do not skip pages. Do not sample. Do not stop early. For each page:
 
 ```
-browser_navigate(url)
-browser_evaluate() → collect performance metrics
-browser_take_screenshot() → visual evidence of loaded state
+cmux browser navigate --surface {surface} --url {url}
+cmux browser wait --surface {surface} --load-state complete
+curl -w "time_total: %{time_total}s\ntime_starttransfer: %{time_starttransfer}s\n" -o /dev/null -s {url}  → collect timing metrics
+cmux read-screen --surface {surface}  → visual evidence of loaded state
 ```
 
 Performance must be measured on EVERY page, not just the homepage. Slow inner pages are just as harmful.
@@ -57,28 +60,21 @@ Performance must be measured on EVERY page, not just the homepage. Slow inner pa
 Measure all three Core Web Vitals on every page. Note: INP replaced FID as of March 2024.
 
 **LCP (Largest Contentful Paint):**
-```javascript
-(async () => {
-  return await new Promise(resolve => {
-    new PerformanceObserver((list) => {
-      const entries = list.getEntries();
-      resolve(entries[entries.length - 1]?.startTime || null);
-    }).observe({ type: 'largest-contentful-paint', buffered: true });
-    setTimeout(() => resolve(null), 5000);
-  });
-})()
+
+JS-based measurement is not available in cmux browser. Use curl timing as a proxy for load speed:
+
+```bash
+curl -w "time_namelookup: %{time_namelookup}s\ntime_connect: %{time_connect}s\ntime_starttransfer: %{time_starttransfer}s\ntime_total: %{time_total}s\n" \
+  -o /dev/null -s "{url}"
 ```
 
-If PerformanceObserver is unavailable, fallback:
-```javascript
-(() => {
-  const paint = performance.getEntriesByType('paint');
-  const nav = performance.getEntriesByType('navigation')[0];
-  const fcp = paint.find(p => p.name === 'first-contentful-paint')?.startTime;
-  // Estimate LCP as FCP + 500ms if no LCP observer available
-  return { fcp, estimatedLcp: fcp ? fcp + 500 : null, loadComplete: nav?.loadEventEnd };
-})()
+Use `time_total` as a proxy for LCP estimate. Also navigate via cmux and observe visually:
 ```
+cmux browser navigate --surface {surface} --url {url}
+cmux browser wait --surface {surface} --load-state complete
+cmux read-screen --surface {surface}
+```
+Estimate LCP from visual observation of when the largest content element appears.
 
 **Thresholds:**
 | Rating | LCP Value |
@@ -88,21 +84,13 @@ If PerformanceObserver is unavailable, fallback:
 | Poor | > 4.0s → **FAIL** |
 
 **CLS (Cumulative Layout Shift):**
-```javascript
-(async () => {
-  return await new Promise(resolve => {
-    let clsValue = 0;
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (!entry.hadRecentInput) {
-          clsValue += entry.value;
-        }
-      }
-    }).observe({ type: 'layout-shift', buffered: true });
-    setTimeout(() => resolve(clsValue), 3000);
-  });
-})()
-```
+
+JS-based CLS measurement is not available in cmux browser. Observe visually:
+- Navigate to page: `cmux browser navigate --surface {surface} --url {url}`
+- Wait for load: `cmux browser wait --surface {surface} --load-state complete`
+- Read screen immediately: `cmux read-screen --surface {surface}`
+- Wait 2 seconds, then read screen again: `cmux read-screen --surface {surface}`
+- Compare — did elements shift position?
 
 **Thresholds:**
 | Rating | CLS Value |
@@ -111,25 +99,14 @@ If PerformanceObserver is unavailable, fallback:
 | Needs Improvement | 0.1 - 0.25 |
 | Poor | > 0.25 → **FAIL** |
 
-To observe CLS visually: take a screenshot immediately after navigation, then another after 2 seconds. Compare — did elements shift?
+To observe CLS visually: read screen immediately after navigation, then again after 2 seconds. Compare — did elements shift?
 
 **INP (Interaction to Next Paint):**
-INP measures responsiveness to user interactions. Test by clicking interactive elements:
-```javascript
-(async () => {
-  return await new Promise(resolve => {
-    let worstInp = 0;
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (entry.duration > worstInp) worstInp = entry.duration;
-      }
-    }).observe({ type: 'event', buffered: true, durationThreshold: 16 });
-    setTimeout(() => resolve(worstInp), 3000);
-  });
-})()
-```
+INP measures responsiveness to user interactions. Test by clicking interactive elements and observing response delay:
+- Click elements using `cmux browser click --surface {surface} '{ref}'`
+- Observe if UI response appears immediate or sluggish via `cmux read-screen --surface {surface}`
 
-Before measuring: click several interactive elements (buttons, links, form inputs) to generate interaction events.
+Before measuring: click several interactive elements (buttons, links, form inputs) to assess responsiveness.
 
 **Thresholds:**
 | Rating | INP Value |
@@ -143,18 +120,13 @@ Before measuring: click several interactive elements (buttons, links, form input
 Measure the user's perception of loading speed:
 
 **TTFB (Time to First Byte):**
-```javascript
-(() => {
-  const nav = performance.getEntriesByType('navigation')[0];
-  return {
-    ttfb: nav ? Math.round(nav.responseStart - nav.requestStart) : null,
-    redirectTime: nav ? Math.round(nav.redirectEnd - nav.redirectStart) : 0,
-    dnsTime: nav ? Math.round(nav.domainLookupEnd - nav.domainLookupStart) : 0,
-    connectTime: nav ? Math.round(nav.connectEnd - nav.connectStart) : 0,
-    tlsTime: nav ? Math.round(nav.secureConnectionStart > 0 ? nav.connectEnd - nav.secureConnectionStart : 0) : 0
-  };
-})()
+
+Use curl timing:
+```bash
+curl -w "time_namelookup: %{time_namelookup}s\ntime_connect: %{time_connect}s\ntime_appconnect: %{time_appconnect}s\ntime_starttransfer: %{time_starttransfer}s\n" \
+  -o /dev/null -s "{url}"
 ```
+`time_starttransfer` = TTFB approximation.
 
 | Rating | TTFB |
 |--------|------|
@@ -163,8 +135,12 @@ Measure the user's perception of loading speed:
 | Poor | > 1800ms → **WARN** |
 
 **FCP (First Contentful Paint):**
-```javascript
-performance.getEntriesByType('paint').find(p => p.name === 'first-contentful-paint')?.startTime
+
+Not directly measurable in cmux browser. Use curl `time_total` as a proxy, and navigate via cmux to observe visual load:
+```
+cmux browser navigate --surface {surface} --url {url}
+cmux browser wait --surface {surface} --load-state complete
+cmux read-screen --surface {surface}
 ```
 
 | Rating | FCP |
@@ -174,52 +150,37 @@ performance.getEntriesByType('paint').find(p => p.name === 'first-contentful-pai
 | Poor | > 3.0s → **FAIL** |
 
 **White flash / blank screen:**
-- Navigate to each page and observe: is there a visible white/blank period before content appears?
-- Take screenshot immediately after navigation starts (within 1s) and after load completes
+- Navigate to each page: `cmux browser navigate --surface {surface} --url {url}`
+- Read screen immediately after navigation: `cmux read-screen --surface {surface}`
+- Observe: is there a visible white/blank period before content appears?
 - WARN if there's a noticeable blank period (skeleton/placeholder is acceptable)
 
 **DOM Interactive timing:**
-```javascript
-(() => {
-  const nav = performance.getEntriesByType('navigation')[0];
-  return {
-    domInteractive: nav ? Math.round(nav.domInteractive) : null,
-    domContentLoaded: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
-    loadComplete: nav ? Math.round(nav.loadEventEnd) : null
-  };
-})()
+
+Not directly measurable via cmux browser. Use curl total time as a proxy:
+```bash
+curl -w "time_total: %{time_total}s\ntime_starttransfer: %{time_starttransfer}s\nsize_download: %{size_download} bytes\n" \
+  -o /dev/null -s "{url}"
 ```
+`time_starttransfer` approximates TTFB. `time_total` approximates full load.
 
 ### 3. Resource Analysis (Focus: 15% of audit effort)
 
 Analyze what the page loads:
 
 **Resource count and size:**
-```javascript
-(() => {
-  const resources = performance.getEntriesByType('resource');
-  const byType = {};
-  let totalSize = 0;
-  resources.forEach(r => {
-    const ext = r.name.split('?')[0].split('.').pop()?.toLowerCase() || 'other';
-    let type = 'other';
-    if (['js'].includes(ext) || r.initiatorType === 'script') type = 'scripts';
-    else if (['css'].includes(ext) || r.initiatorType === 'css') type = 'stylesheets';
-    else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'ico'].includes(ext) || r.initiatorType === 'img') type = 'images';
-    else if (['woff', 'woff2', 'ttf', 'otf', 'eot'].includes(ext)) type = 'fonts';
-    else if (['mp4', 'webm', 'ogg'].includes(ext) || r.initiatorType === 'video') type = 'video';
-    if (!byType[type]) byType[type] = { count: 0, size: 0 };
-    byType[type].count++;
-    byType[type].size += r.transferSize || 0;
-    totalSize += r.transferSize || 0;
-  });
-  return {
-    totalRequests: resources.length,
-    totalSizeKB: Math.round(totalSize / 1024),
-    byType: Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, { count: v.count, sizeKB: Math.round(v.size / 1024) }]))
-  };
-})()
+
+JS-based resource enumeration is not available in cmux browser. Use curl to measure total page weight:
+```bash
+curl -w "size_download: %{size_download} bytes\nnum_connects: %{num_connects}\n" \
+  -o /dev/null -s "{url}"
 ```
+
+Also inspect the page snapshot to identify resource types:
+```
+cmux browser snapshot --surface {surface} --interactive
+```
+Look for `<script>`, `<link rel="stylesheet">`, `<img>`, `<video>`, `<iframe>` references in snapshot output to estimate resource counts.
 
 **Thresholds:**
 - WARN if total requests > 50 per page
@@ -235,16 +196,10 @@ If a page contains `<video>` or video player iframes, apply adjusted thresholds:
 - WARN if > 4 font files loaded
 
 **Third-party resources:**
-```javascript
-(() => {
-  const resources = performance.getEntriesByType('resource');
-  const host = location.hostname;
-  const thirdParty = resources.filter(r => {
-    try { return new URL(r.name).hostname !== host; } catch { return false; }
-  });
-  const domains = [...new Set(thirdParty.map(r => { try { return new URL(r.name).hostname; } catch { return 'unknown'; } }))];
-  return { count: thirdParty.length, sizeKB: Math.round(thirdParty.reduce((s, r) => s + (r.transferSize || 0), 0) / 1024), domains };
-})()
+
+Not enumerable via JS in cmux browser. Use `cmux browser snapshot --surface {surface} --interactive` to identify third-party script/iframe URLs in the page structure. Alternatively use `curl` to fetch the HTML source and grep for external domains:
+```bash
+curl -s "{url}" | grep -oE 'src="https?://[^"]*"' | grep -v "{site_hostname}"
 ```
 - WARN if > 10 third-party domains
 - WARN if third-party resources > 30% of total transfer size
@@ -258,147 +213,95 @@ If `discovery.json.hidden_ads` is non-empty, the site runs advertising scripts.
 ### 4. Image Optimization (Focus: 10% of audit effort)
 
 **Image analysis:**
-```javascript
-(() => {
-  const imgs = [...document.querySelectorAll('img')];
-  const results = imgs.map(img => {
-    const rect = img.getBoundingClientRect();
-    const isInViewport = rect.top < window.innerHeight && rect.bottom > 0;
-    return {
-      src: img.src.split('/').pop()?.slice(0, 50),
-      naturalWidth: img.naturalWidth,
-      naturalHeight: img.naturalHeight,
-      displayWidth: Math.round(rect.width),
-      displayHeight: Math.round(rect.height),
-      isInViewport,
-      loading: img.loading,
-      format: img.src.split('?')[0].split('.').pop()?.toLowerCase()
-    };
-  }).filter(r => r.naturalWidth > 0);
-  return results;
-})()
+
+Use snapshot and HTML source inspection instead of JS:
+```
+cmux browser snapshot --surface {surface} --interactive
+```
+Identify image elements in the snapshot. Also fetch HTML source to check image attributes:
+```bash
+curl -s "{url}" | grep -oE '<img[^>]*>' | head -30
 ```
 
 **Checks:**
-- Oversized images: is naturalWidth > 2x displayWidth? WARN — image should be resized.
-- Modern formats: are images in WebP or AVIF? WARN if using JPEG/PNG for large images (>100KB).
-- Lazy loading: do below-fold images have `loading="lazy"`? WARN if not.
-- FAIL if any above-fold image is > 500KB.
+- Modern formats: check image `src` extensions in snapshot/HTML. WARN if using JPEG/PNG for large images (>100KB) instead of WebP/AVIF.
+- Lazy loading: check if below-fold images have `loading="lazy"` in HTML source. WARN if not.
+- FAIL if any above-fold image URL points to an obviously oversized file (>500KB estimated by curl download).
 
 **Iframe Lazy Loading:**
 - Check below-fold iframes (Google Maps, YouTube embeds, third-party widgets)
 - WARN if any below-fold `<iframe>` lacks `loading="lazy"` attribute
 - Common offenders: Google Maps embed, YouTube video embed, social media embeds
-- Use `browser_evaluate` to find: `document.querySelectorAll('iframe:not([loading="lazy"])')` and check if any are below the initial viewport
+- Check via HTML source: `curl -s "{url}" | grep -i '<iframe'` — look for missing `loading="lazy"`
 - Hero/banner images: what format and size? Optimization opportunity?
 
 ### 5. Render-Blocking Resources (Focus: 10% of audit effort)
 
 **Check render-blocking behavior:**
-```javascript
-(() => {
-  const resources = performance.getEntriesByType('resource');
-  const renderBlocking = resources.filter(r => r.renderBlockingStatus === 'blocking');
-  return {
-    count: renderBlocking.length,
-    resources: renderBlocking.map(r => ({
-      name: r.name.split('/').pop()?.split('?')[0]?.slice(0, 60),
-      type: r.initiatorType,
-      duration: Math.round(r.duration),
-      sizeKB: Math.round((r.transferSize || 0) / 1024)
-    }))
-  };
-})()
-```
 
-- WARN if > 3 render-blocking resources
-- WARN if any single render-blocking resource > 100KB
+Not measurable via JS in cmux browser. Use HTML source inspection:
+```bash
+curl -s "{url}" | grep -E '<link[^>]*rel="stylesheet"[^>]*>|<script[^>]*src="[^"]*"[^>]*>'
+```
+Check if `<link rel="stylesheet">` tags are in `<head>` (render-blocking) and if `<script>` tags lack `async` or `defer`.
+
+- WARN if > 3 render-blocking stylesheet/script resources
+- WARN if any inline/external CSS is > 100KB (check via `curl -I {css_url}` to get Content-Length)
 - Note total blocking time estimate
 
 **Script loading strategy:**
-```javascript
-(() => {
-  const scripts = [...document.querySelectorAll('script[src]')];
-  return scripts.map(s => ({
-    src: s.src.split('/').pop()?.split('?')[0]?.slice(0, 50),
-    async: s.async,
-    defer: s.defer,
-    type: s.type
-  }));
-})()
+
+Check via HTML source:
+```bash
+curl -s "{url}" | grep -oE '<script[^>]*src="[^"]*"[^>]*>'
 ```
-- WARN if large scripts are neither `async` nor `defer`
+- WARN if scripts in `<head>` lack `async` or `defer` attributes
 
 ### 6. Font Loading (Focus: 5% of audit effort)
 
 **Font loading behavior:**
-```javascript
-(() => {
-  const fonts = performance.getEntriesByType('resource').filter(r =>
-    r.name.match(/\.(woff2?|ttf|otf|eot)/i)
-  );
-  return {
-    count: fonts.length,
-    fonts: fonts.map(f => ({
-      name: f.name.split('/').pop()?.split('?')[0],
-      sizeKB: Math.round((f.transferSize || 0) / 1024),
-      duration: Math.round(f.duration)
-    })),
-    totalSizeKB: Math.round(fonts.reduce((s, f) => s + (f.transferSize || 0), 0) / 1024)
-  };
-})()
+
+Use HTML/CSS source inspection:
+```bash
+curl -s "{url}" | grep -oE '(href|src)="[^"]*\.(woff2?|ttf|otf|eot)[^"]*"'
+```
+Check each found font URL for size:
+```bash
+curl -I "{font_url}" | grep -i content-length
 ```
 
 - WARN if > 4 font files (suggests too many font families/weights)
 - WARN if total font size > 200KB
-- Check for FOIT/FOUT: navigate to a page and watch for text flash (take rapid screenshots)
-- Check `font-display` usage:
-  ```javascript
-  (() => {
-    const results = [];
-    for (const ss of document.styleSheets) {
-      try {
-        const rules = ss.cssRules;
-        for (const r of rules) {
-          if (r.type === 5) {
-            results.push({ family: r.style.fontFamily, display: r.style.fontDisplay });
-          }
-        }
-      } catch (e) {
-        // Cross-origin stylesheets throw SecurityError — skip silently
-      }
-    }
-    return results;
-  })()
-  ```
+- Check for FOIT/FOUT: navigate to page and observe text rendering via `cmux read-screen --surface {surface}`
+- Check `font-display` usage: `curl -s "{css_url}" | grep font-display`
 
 ### 7. Mobile Performance (Focus: 10% of audit effort)
 
 Test performance at mobile viewport:
 
 ```
-browser_resize(375, 812)
+cmux browser resize --surface {surface} --width 375 --height 812
 ```
 
 For each page at mobile:
-- Re-run Core Web Vitals measurement (navigate fresh)
-- Re-run resource analysis
-- Compare metrics vs desktop
+- Re-navigate: `cmux browser navigate --surface {surface} --url {url}`
+- Re-run curl timing as primary metric
+- Compare visual load via `cmux read-screen --surface {surface}`
 
 **Mobile-specific checks:**
 - WARN if mobile page loads significantly more resources than necessary (desktop-only assets served to mobile)
 - Are heavy animations/videos still loading on mobile? WARN if so.
 - Check if images are served at appropriate size for mobile viewport (not desktop-size images)
-- WARN if mobile page weight > 2MB
+- WARN if mobile page weight > 2MB (measured via curl)
 
 **Viewport meta:**
-```javascript
-document.querySelector('meta[name="viewport"]')?.content
+```bash
+curl -s "{url}" | grep -i 'meta.*viewport'
 ```
 - FAIL if no viewport meta tag
 - WARN if viewport doesn't include `width=device-width`
 
-After mobile testing, restore: `browser_resize(1440, 900)`
+After mobile testing, restore: `cmux browser resize --surface {surface} --width 1440 --height 900`
 
 ### 8. Caching Indicators (Focus: 5% of audit effort)
 
@@ -406,28 +309,28 @@ Test if caching is working:
 
 **Method:** Navigate to a page, record timing, navigate away, navigate back, compare timing.
 
-```javascript
-// First visit metrics
-(() => {
-  const nav = performance.getEntriesByType('navigation')[0];
-  const resources = performance.getEntriesByType('resource');
-  const cached = resources.filter(r => r.transferSize === 0 && r.decodedBodySize > 0);
-  return {
-    totalResources: resources.length,
-    cachedResources: cached.length,
-    cacheHitRate: resources.length > 0 ? Math.round(cached.length / resources.length * 100) : 0
-  };
-})()
+```bash
+# First visit — record time_total
+curl -w "time_total: %{time_total}s\n" -o /dev/null -s "{url}"
+
+# Second visit — record time_total (should be faster if caching works)
+curl -w "time_total: %{time_total}s\n" -o /dev/null -s "{url}"
 ```
 
-- Navigate away: `browser_navigate("about:blank")`
-- Navigate back: `browser_navigate(url)` → re-measure
-- Compare: did cache hit rate increase on second visit?
-- WARN if cache hit rate on second visit < 50%
+Check cache headers:
+```bash
+curl -I "{url}" | grep -i 'cache-control\|etag\|last-modified\|expires'
+```
+
+- Navigate away: `cmux browser navigate --surface {surface} --url about:blank`
+- Navigate back: `cmux browser navigate --surface {surface} --url {url}` → observe load speed
+- Compare: did second visit feel faster?
+- WARN if cache headers are missing (no `Cache-Control`, no `ETag`)
 
 **Service Worker:**
-```javascript
-('serviceWorker' in navigator) && navigator.serviceWorker.controller ? 'active' : 'none'
+Check via HTML source or snapshot:
+```bash
+curl -s "{url}" | grep -i 'serviceWorker\|sw\.js'
 ```
 - Note presence of Service Worker (positive signal for PWA/caching)
 
@@ -495,7 +398,7 @@ Write the report to `{run_dir}/performance-report.md`:
 
 ## Measurement Environment
 
-**Browser:** Chromium (Playwright MCP), headless/headed
+**Browser:** cmux browser (headless)
 **Network:** Unthrottled local connection
 **Device:** Desktop CPU, no throttling
 **⚠️ Important:** Real-world metrics on mobile devices and slow networks (3G/4G) may be 2-3x worse than measured values. For accurate field data, use Chrome UX Report (CrUX) or Google PageSpeed Insights.
@@ -617,10 +520,11 @@ Final: 100 - {X} = {N}
 
 - All report content in English. Technical terms (LCP, CLS, INP, FCP, TTFB, CWV, FOIT, FOUT, WebP, AVIF) in English.
 - Every finding MUST use the finding template defined in the main SKILL.md. Do NOT use any other template format.
-- Reference screenshots from `{run_dir}/screenshots/` as evidence.
-- Do not inspect source code or server configuration. Measure only via browser APIs.
+- Reference screen reads from `cmux read-screen` as visual evidence.
+- Do not inspect source code or server configuration. Measure via cmux browser navigation and curl timing.
 - Do not visit external websites. Only measure the target site.
 - Performance metrics can vary between runs. If a measurement seems anomalous, re-measure (navigate away and back).
-- When PerformanceObserver APIs are unavailable, fall back to `performance.timing` and `performance.getEntriesByType`.
-- Always navigate fresh to each page for CWV measurement (don't rely on cached visits for primary metrics).
-- Note: Playwright MCP runs in a real browser but network conditions may differ from typical users. Document your measurement environment.
+- JS execution (`browser_evaluate`) is NOT available in cmux browser. Use curl for timing data and HTML source inspection for resource analysis.
+- Always navigate fresh to each page for timing measurement (don't rely on cached visits for primary metrics).
+- Always close the browser surface when done: `cmux close-surface --surface {surface}`.
+- Note: cmux browser network conditions may differ from typical users. Document your measurement environment.

@@ -7,7 +7,7 @@ Analyze marketing copy quality from cached data only:
 - `{run_dir}/discovery.json` — page inventory
 - `{run_dir}/sitemap.md` — full site structure
 
-Do NOT call any `browser_*` tools. Do NOT reference Playwright MCP.
+Do NOT call any cmux browser tools. Do NOT reference cmux browser.
 
 > **Foundational Principle:** This module's checks are concrete applications of the Human-First Evaluation Principle. Copy and content are evaluated through the lens of: does the text speak to the visitor's need in their language, at their depth, matching their emotional state — or does it speak about the creator's product in the creator's terms? Technical checks that PASS but violate the principle are still findings. See SKILL.md "FOUNDATIONAL PRINCIPLE" section.
 

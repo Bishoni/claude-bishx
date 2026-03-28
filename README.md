@@ -34,7 +34,7 @@ Type `/bishx:` to verify commands appear in autocomplete.
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs all test types, reports bugs to bd |
-| `/bishx:site <url>` | Full website audit — crawls up to 100 pages via Playwright, analyzes UX/UI, SEO, accessibility, performance, conversion |
+| `/bishx:site <url>` | Full website audit — crawls up to 100 pages via cmux browser, analyzes UX/UI, SEO, accessibility, performance, conversion |
 
 ## Architecture
 
@@ -84,7 +84,7 @@ All teammates (Dev, Reviewers, QA) reason and communicate in English for better 
 /bishx:site https://example.com
 ```
 
-Autonomous website audit powered by Playwright. Crawls up to 100 pages and produces a design critique document (not code) with actionable recommendations.
+Autonomous website audit powered by cmux browser. Crawls up to 100 pages and produces a design critique document (not code) with actionable recommendations.
 
 Evaluates through a Human-First lens across five layers:
 

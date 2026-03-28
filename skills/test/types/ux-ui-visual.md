@@ -10,7 +10,7 @@ Read these sections from `{run_dir}/discovery-report.md`:
 ## Context Budget
 
 - Screenshots: take them, reference by filename. Do NOT describe every pixel.
-- browser_snapshot: scan for structure, do NOT copy full accessibility tree
+- cmux browser snapshot: scan for structure, do NOT copy full accessibility tree
 - CSS/source reads: only theme config (tailwind.config, CSS variables) + specific components with issues
 - Limit to main pages (max 6). Do NOT test every viewport × every page — focus on key pages.
 - Keep evaluations concise: 2-3 sentences per dimension per page, not paragraphs
@@ -23,12 +23,14 @@ Your primary mission is DESIGN QUALITY EVALUATION — not just finding broken pi
 
 Web URL: {profile.services.web_url}
 
-MANDATORY: Use MCP Playwright for ALL visual checks:
-- `browser_navigate(url)` — open pages
-- `browser_snapshot()` — read accessibility tree (structure, labels, roles)
-- `browser_take_screenshot()` — capture visual state (PRIMARY tool — screenshot EVERY page)
-- `browser_click(element, ref)` — interact with elements
-- `browser_resize(width, height)` — test different viewports
+MANDATORY: Use cmux browser for ALL visual checks:
+- `cmux new-pane --type browser --url {url}` → returns surface ID (e.g. surface:2)
+- `cmux browser wait --surface {surface} --load-state complete` — wait for page load
+- `cmux browser snapshot --surface {surface} --interactive` — read accessibility tree (structure, labels, roles)
+- `cmux read-screen --surface {surface}` — capture visual state (PRIMARY tool — read screen EVERY page)
+- `cmux browser click --surface {surface} '{ref}'` — interact with elements
+- `cmux browser resize --surface {surface} --width {w} --height {h}` — test different viewports
+- `cmux close-surface --surface {surface}` — MANDATORY when done
 
 Also read frontend source code (CSS, Tailwind config) to understand design tokens and theme setup.
 

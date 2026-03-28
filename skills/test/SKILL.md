@@ -6,7 +6,7 @@ description: "Deep system testing — auto-detects stack, discovers components, 
 # Bishx-Test: Deep System Testing
 
 Autonomous testing skill. Detects project stack, discovers components, runs existing tests,
-performs E2E acceptance testing via Playwright MCP, security audit, data integrity and
+performs E2E acceptance testing via cmux browser, security audit, data integrity and
 performance checks. Writes proposed tests to run directory (never touches project source).
 Produces structured bug reports in bd.
 
@@ -14,7 +14,7 @@ Produces structured bug reports in bd.
 
 - Skipping Discovery phase
 - Hardcoding project-specific paths, commands, or URLs
-- Running E2E without Playwright MCP (if web UI exists)
+- Running E2E without cmux browser (if web UI exists)
 - Fixing bugs — ONLY find and report
 - Creating bd tasks without severity and reproduction steps
 - Using Sonnet/Haiku agents — ALL agents are Opus
@@ -96,7 +96,7 @@ If found, prefix all Python commands: `{venv}/bin/python`, `{venv}/bin/pytest`, 
 ### MCP Detection
 
 Check available MCP tools by attempting to list them. Key tools:
-- `browser_navigate` — Playwright MCP available, E2E possible
+- `cmux` (cmux browser available) — E2E possible
 - `send_message` (Telegram) — Telegram MCP available
 - Other domain-specific MCPs
 
@@ -130,7 +130,7 @@ Check available MCP tools by attempting to list them. Key tools:
     "api_url": "<API base URL if detectable>"
   },
   "mcp": {
-    "playwright": true,
+    "cmux_browser": true,
     "telegram": false
   },
   "e2e_possible": true,
@@ -196,10 +196,10 @@ Given the project profile, the analyst MUST:
    - Security: always available
    - Data Integrity: available if data pipeline exists (import/export/transform)
    - Performance: available if API endpoints exist
-   - Accessibility: available if `e2e_possible == true` (uses Playwright accessibility tree)
+   - Accessibility: available if `e2e_possible == true` (uses cmux browser accessibility tree)
    - Error Handling: always available (tests resilience to failures)
-   - UX/UI Visual: available if `e2e_possible == true` (uses Playwright for visual quality checks)
-   - Web Bug Hunting: available if `e2e_possible == true` (uses Playwright for exploratory bug search)
+   - UX/UI Visual: available if `e2e_possible == true` (uses cmux browser for visual quality checks)
+   - Web Bug Hunting: available if `e2e_possible == true` (uses cmux browser for exploratory bug search)
 
 **CONTEXT BUDGET for analyst:** Keep the report under 200 lines. Be structured and concise — tables over prose.
 
@@ -264,7 +264,7 @@ AskUserQuestion(
     },
     {
       // Only include this question if e2e_possible == true
-      question: "Web testing (Playwright) — which types to run?",
+      question: "Web testing (cmux browser) — which types to run?",
       header: "Web",
       multiSelect: true,
       options: [
@@ -664,10 +664,10 @@ After bd tasks are created, present a summary:
 
 1. **Discovery first** — never test blindly. Always build profile + discovery report.
 2. **Profile-driven** — all commands, paths, URLs come from profile.json. No hardcoding.
-3. **Playwright MCP is MANDATORY** for web E2E. No curl/fetch substitutes for UI testing.
+3. **cmux browser is MANDATORY** for web E2E. No curl/fetch substitutes for UI testing.
 4. **Do NOT fix bugs** — only find and report. The output is a bd task, not a code change.
 5. **Proposed tests go to `{run_dir}/proposed-tests/` ONLY** — never write into the project tree.
-6. **Screenshot every visual anomaly** — via browser_take_screenshot.
+6. **Capture every visual anomaly** — via `cmux read-screen --surface {surface}`.
 7. **Proposed test files are suggestions** — user decides whether to copy them into the project.
 8. **Exhaustive bug descriptions** — developer must be able to fix without asking questions.
 9. **Deduplicate** — same root cause found by multiple phases = one bd task, mention all evidence.

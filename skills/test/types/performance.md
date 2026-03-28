@@ -43,8 +43,8 @@ Workflow:
    - Import large file — does memory spike? Does it stream or load all at once?
    - Concurrent requests — does the server handle 10 simultaneous requests?
 
-5. **Frontend performance** (if web_url available and Playwright MCP present):
-   - Page load time (browser_navigate, then measure)
+5. **Frontend performance** (if web_url available and cmux browser present):
+   - Page load time: `SURFACE=$(cmux new-pane --type browser --url {web_url})` + `cmux browser wait --surface $SURFACE --load-state complete`, then measure with curl timing
    - Time to interactive
    - Large data rendering (does table/chart freeze with 1000+ rows?)
 

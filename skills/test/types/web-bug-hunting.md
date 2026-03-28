@@ -15,7 +15,7 @@ Do NOT read full reports from other phases.
 
 ## Context Budget
 
-- browser_snapshot: scan for issues, do NOT copy entire accessibility tree
+- cmux browser snapshot: scan for issues, do NOT copy entire accessibility tree
 - Console messages: first 20 per page, then "... and N more"
 - Source reads: only files relevant to bugs you're investigating
 - Focus on 5-8 highest-risk pages, not exhaustive coverage of every route
@@ -27,16 +27,21 @@ You are performing exploratory bug hunting on "{profile.project}" web interface.
 Web URL: {profile.services.web_url}
 API URL: {profile.services.api_url}
 
-MANDATORY: Use MCP Playwright for ALL web testing.
+MANDATORY: Use cmux browser for ALL web testing.
+
+Open browser: `SURFACE=$(cmux new-pane --type browser --url {web_url})`
+Wait for load: `cmux browser wait --surface $SURFACE --load-state complete`
+Close when done: `cmux close-surface --surface $SURFACE`
 
 This is NOT scripted flow testing (that's E2E Acceptance). This is **exploratory testing** — you are a tester trying to BREAK the application through creative, unexpected interactions.
 
 Workflow:
 1. **Console errors audit:**
-   Navigate to every page/route. After each navigation:
-   - Check browser console for JS errors, warnings, unhandled promise rejections
-   - Record: page URL, error message, stack trace if available
-   - Any console error = at least P3
+   Navigate to every page/route using `cmux browser navigate --surface $SURFACE --url {url}`. After each navigation:
+   - Check for JS errors via `cmux read-screen --surface $SURFACE` and `cmux browser snapshot --surface $SURFACE --interactive` (look for error elements)
+   - Note: cmux browser does not expose console API directly — check visible error messages and broken UI states
+   - Record: page URL, visible error indicators
+   - Any visible JS error message = at least P3
 
 2. **Broken links and navigation:**
    For every link and button on every page:

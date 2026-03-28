@@ -808,7 +808,7 @@ HEREDOC
 BISHX-SITE: Wave 1 complete (${TIER_A_DONE}/${TIER_A_EXPECTED} Tier A reports). Now run Wave 2 — browser modules SEQUENTIALLY.
 
 1. Wave 2 is now active with agent_pending=true (set by stop hook).
-2. Run Tier B modules ONE AT A TIME (exclusive Playwright browser access):$(
+2. Run Tier B modules ONE AT A TIME (exclusive cmux browser access):$(
   for bmod in $TIER_B_MODULES; do
     echo "
    - ${bmod}: \`Task(subagent_type=\"oh-my-claudecode:executor-high\", model=\"opus\", prompt=<${bmod} instructions + sitemap + finding template + scoring rules>)\`
@@ -817,7 +817,7 @@ BISHX-SITE: Wave 1 complete (${TIER_A_DONE}/${TIER_A_EXPECTED} Tier A reports). 
 3. Set \`agent_pending\` → \`false\`
 4. Emit \`<bishx-site-done>\`
 
-IMPORTANT: Run these modules ONE AT A TIME. They need exclusive Playwright browser access.
+IMPORTANT: Run these modules ONE AT A TIME. They need exclusive cmux browser access.
 HEREDOC
             else
               # No Tier B modules selected → all done, go to synthesize
@@ -893,7 +893,7 @@ HEREDOC
     # No signal detected — nudge based on phase
     case "$SITE_PHASE" in
       "discover")
-        PROMPT="BISHX-SITE: Continue Discovery. Crawl remaining pages via Playwright. When complete, emit <bishx-site-done>."
+        PROMPT="BISHX-SITE: Continue Discovery. Crawl remaining pages via cmux browser. When complete, emit <bishx-site-done>."
         ;;
       "ask")
         # User input needed — allow exit
