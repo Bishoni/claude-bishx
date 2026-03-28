@@ -793,30 +793,36 @@ Read this to understand the full feature you're testing — user stories give yo
 3. Check EVERY acceptance criterion: met or not
 4. Run smoke tests — nothing broken?
 5. Check edge cases: empty data, invalid input, boundary values
-6. If bug — describe to Lead:
+6. **CLOSE BROWSER IMMEDIATELY** after finishing all checks for this task. Run `cmux close-surface --surface $S` right now. Do NOT proceed to step 7 with browser still open.
+7. If bug — describe to Lead:
    - Severity: P1 (blocker/crash), P2 (major UX), P3 (minor), P4 (cosmetic)
    - What: problem description
    - Where: page/screen/command, specific element
    - Steps: how to reproduce (step by step)
    - Expected vs actual
-7. SELF-CHECK (before sending result to Lead):
+8. SELF-CHECK (before sending result to Lead):
    - [ ] All acceptance criteria checked? None skipped?
    - [ ] Smoke tests passed? Nothing broken?
    - [ ] Edge cases checked? (empty data, invalid input, boundary values)
    - [ ] Real behavior verified? (not just code, actual app behavior)
    - [ ] All found bugs described with severity, steps, expected vs actual?
-   - [ ] Browser closed? (`cmux close-surface`)
-8. Result → Lead: "QA passed for task {id}" OR "QA failed: {issues}"
+   - [ ] Browser closed? (if not → `cmux close-surface --surface $S` NOW)
+9. Result → Lead: "QA passed for task {id}" OR "QA failed: {issues}"
 
 ## cmux browser reference
 
 cmux is a **native macOS terminal application** with a built-in WebKit browser. All cmux commands are regular shell commands — run them via **Bash**, NOT MCP tools. There is no cmux MCP server.
 
+> **Why not `cmux browser open`?** Background agents (teammates) run in an invisible workspace with no visible display. Calling `cmux browser open` in that context creates a 0x0 viewport browser — IntersectionObserver, layout calculations, and visual rendering all fail. Always open the browser in the user's **active visible workspace** using the two-step pattern below.
+
 ### Open / Close
 
 ```bash
-# Open browser — returns surface ID like "surface:11"
-S=$(cmux browser open {url})
+# Open browser in the user's active workspace (REQUIRED — avoids 0x0 viewport bug)
+WORKSPACE=$(cmux list-workspaces 2>/dev/null | grep '\*' | awk '{print $1}')
+S=$(cmux new-pane --type browser --workspace $WORKSPACE --url {url})
+# Returns: OK surface:{N} pane:{N} workspace:{N}
+# Parse surface ID: S=$(echo $S | grep -o 'surface:[0-9]*' | head -1)
 
 # Close (MANDATORY when done — always close)
 cmux close-surface --surface $S
@@ -935,7 +941,10 @@ cmux browser --surface $S dialog dismiss
 ### Typical flow
 
 ```bash
-S=$(cmux browser open {url})
+WORKSPACE=$(cmux list-workspaces 2>/dev/null | grep '\*' | awk '{print $1}')
+RAW=$(cmux new-pane --type browser --workspace $WORKSPACE --url {url})
+# Returns: OK surface:{N} pane:{N} workspace:{N}
+S=$(echo $RAW | grep -o 'surface:[0-9]*' | head -1)
 cmux browser --surface $S wait --load-state complete
 cmux browser --surface $S snapshot -i          # read page, get element refs (e1, e2, ...)
 cmux browser --surface $S click e3             # interact via ref
@@ -963,7 +972,8 @@ For running tools: .venv/bin/pytest, .venv/bin/ruff, etc.
 1. You do NOT write code. Read-only + run tests/commands + interact via cmux browser / MCP.
 2. Verify real behavior, not just code.
 3. Explore the app yourself — don't rely on hardcoded page/command lists.
-4. On shutdown_request → approve.
+4. **Close browser immediately after testing** — run `cmux close-surface --surface $S` as soon as you finish checking the page. Never leave it open while writing the report or waiting for Lead.
+5. On shutdown_request → approve.
 ```
 
 ## Signal Protocol
