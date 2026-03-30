@@ -950,6 +950,13 @@ RAW=$(cmux browser open {site_url})
 SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)
 ```
 Store the surface ID in `$SURFACE`.
+
+**CRITICAL: Close the browser when done.** When all crawling and testing is finished
+(before writing the final SITE-REVIEW.md), close the browser:
+```bash
+cmux close-surface --surface $SURFACE
+```
+Never leave the browser open while writing reports or waiting for modules to complete.
 If the command fails (cmux not installed) → STOP and tell user to install cmux.
 
 All subsequent browser commands follow the pattern:
@@ -1139,13 +1146,13 @@ cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slu
 **Note:** Scroll capture is NOT done here. It happens in Step 4 (Post-Interaction Scroll Capture) AFTER interactive testing has revealed hidden content (expanded accordions, loaded "load more" content, etc.).
 
 ```bash
-cmux browser --surface $SURFACE resize --width 375 --height 812
+cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -L --amount 400  # narrow for mobile
 cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-mobile.png
 
 # Tablet viewport
-cmux browser --surface $SURFACE resize --width 768 --height 1024
+cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -R --amount 200  # widen for tablet
 cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-tablet.png
-cmux browser --surface $SURFACE resize --width 1440 --height 900  # restore desktop
+cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -R --amount 200  # restore desktop  # restore desktop
 ```
 
 Tablet scroll capture is NOT needed (desktop scroll captures cover the content). Tablet screenshot is for responsive layout evaluation only.
@@ -1360,10 +1367,10 @@ If business_type in [ecommerce, marketplace, food_delivery]:
 This gives modules populated checkout views instead of empty-cart states.
 
 **Navigation:**
-- Mobile menu: `cmux browser --surface $SURFACE resize --width 375 --height 812` → find hamburger menu ref in snapshot → `cmux browser --surface $SURFACE click {hamburger_ref}`
+- Mobile menu: `cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -L --amount 400  # narrow for mobile` → find hamburger menu ref in snapshot → `cmux browser --surface $SURFACE click {hamburger_ref}`
 - Dropdown menus: click each nav item with submenus via snapshot refs
 - Tab bars, sidebars, breadcrumbs
-- `cmux browser --surface $SURFACE resize --width 1440 --height 900` → restore desktop
+- `cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -R --amount 200  # restore desktop` → restore desktop
 
 **Dynamic content:**
 - Scroll to bottom of each page → check for lazy-loaded content
@@ -1483,15 +1490,27 @@ Do NOT attempt scroll capture on mobile viewport.
 
 #### Step 5: Viewport Testing
 
-For EACH page, test at minimum:
-- Desktop: 1440×900
-- Mobile: 375×812
+**`viewport` and `resize` are NOT supported on WKWebView.** Use `resize-pane` to change browser pane width.
+See `~/.claude/skill-library/references/cmux-browser.md` section 16 for details.
 
-At each viewport:
+For EACH page, test at minimum:
+- Desktop: current pane width (typically ~1440px if full-width)
+- Mobile: narrow the pane by ~400px
+
 ```bash
-cmux browser --surface $SURFACE resize --width {width} --height {height}
-cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-{viewport}.png
-cmux browser --surface $SURFACE snapshot -i
+# Save pane ref for resizing
+PANE=$(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1)
+
+# Desktop screenshot (current size)
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-desktop.png
+
+# Narrow for mobile
+cmux resize-pane --pane $PANE -L --amount 400
+sleep 0.5
+cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_slug}-mobile.png
+
+# Restore
+cmux resize-pane --pane $PANE -R --amount 400
 ```
 
 Note any differences in layout, hidden/shown elements, navigation changes.
@@ -1799,11 +1818,11 @@ cmux browser --surface $SURFACE goto {url}
 cmux browser --surface $SURFACE wait --load-state complete
 cmux browser --surface $SURFACE snapshot -i  # save to {run_dir}/snapshots/{page_name}.txt
 cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_name}-desktop.png
-cmux browser --surface $SURFACE resize --width 375 --height 812
+cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -L --amount 400  # narrow for mobile
 cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_name}-mobile.png
-cmux browser --surface $SURFACE resize --width 768 --height 1024
+cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -R --amount 200  # widen for tablet
 cmux browser --surface $SURFACE screenshot --out {run_dir}/screenshots/{page_name}-tablet.png
-cmux browser --surface $SURFACE resize --width 1440 --height 900
+cmux resize-pane --pane $(cmux list-panes | grep -o 'pane:[0-9]*' | tail -1) -R --amount 200  # restore desktop
 ```
 
 This cached data is sufficient for 7 of 9 modules.
@@ -2534,3 +2553,4 @@ These examples help when the agent is unsure how to apply the principle.
 15. **Unified scoring.** All modules: FAIL = −15, WARN = −5, starting from 100. No custom formulas.
 16. **Check ownership.** Each check has one owner. No duplicate findings across modules.
 17. **Report completion marker.** Every module report MUST end with `<!-- BISHX-SITE-REPORT-COMPLETE -->` as the last line. The stop hook verifies this marker to confirm the report is fully written, not partially saved from a crashed agent. The stop hook should verify this marker exists at the end of each report file before counting it as complete.
+18. **Close browser when done.** `cmux close-surface --surface $SURFACE` MUST be called before writing SITE-REVIEW.md. Never leave browser panes open.
