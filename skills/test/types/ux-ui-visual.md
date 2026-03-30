@@ -23,18 +23,16 @@ Your primary mission is DESIGN QUALITY EVALUATION — not just finding broken pi
 
 Web URL: {profile.services.web_url}
 
-MANDATORY: Use cmux browser for ALL visual checks. cmux is a native macOS app — all commands run via Bash, not MCP tools.
+MANDATORY: Use cmux browser for ALL visual checks. Full reference: `~/.claude/skill-library/references/cmux-browser.md`.
 
 ```bash
-S=$(cmux browser open {url})                              # open browser, save surface ID
+RAW=$(cmux browser open {url})
+S=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)    # open browser, save surface ID
 cmux browser --surface $S wait --load-state complete      # wait for page load
 cmux browser --surface $S snapshot -i                     # interactive snapshot — element refs + structure
 cmux browser --surface $S screenshot --out /tmp/page.png  # capture visual state
 cmux browser --surface $S click {ref}                     # interact (prefer refs from snapshot -i)
 cmux browser --surface $S eval '{js}'                     # execute JavaScript
-cmux browser --surface $S goto {url}                      # navigate
-cmux browser --surface $S get text 'body'                 # get page text
-cmux browser --surface $S console list                    # check console errors
 cmux close-surface --surface $S                           # MANDATORY when done
 ```
 

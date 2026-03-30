@@ -44,7 +44,12 @@ Workflow:
    - Concurrent requests — does the server handle 10 simultaneous requests?
 
 5. **Frontend performance** (if web_url available and cmux browser present):
-   - Page load time: open browser with `SURFACE=$(cmux browser open {web_url})`, wait with `cmux browser --surface $SURFACE wait --load-state complete`, then measure total time via Bash timing
+   - Page load time: open browser (full reference: `~/.claude/skill-library/references/cmux-browser.md`):
+     ```bash
+     RAW=$(cmux browser open {web_url})
+     SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)
+     ```
+     Then wait with `cmux browser --surface $SURFACE wait --load-state complete` and measure total time via Bash timing
    - Time to interactive
    - Large data rendering (does table/chart freeze with 1000+ rows?)
 

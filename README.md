@@ -86,7 +86,12 @@ All teammates (Dev, Reviewers, QA) reason and communicate in English for better 
 
 Autonomous website audit powered by cmux browser. Crawls up to 100 pages and produces a design critique document (not code) with actionable recommendations.
 
-**cmux** is a native macOS terminal application with a built-in WebKit browser. All browser commands are executed via **Bash** (not MCP tools). The browser is opened with `cmux browser open {url}` (returns a surface ID) and all subsequent commands follow the pattern `cmux browser --surface {id} <subcommand> [args]`. Close surfaces when done with `cmux close-surface --surface {id}`.
+**cmux** is a native macOS terminal application with a built-in WebKit browser. All browser commands are executed via **Bash** (not MCP tools). Full reference: `~/.claude/skill-library/references/cmux-browser.md`.
+```bash
+RAW=$(cmux browser open {url})   # uses $CMUX_WORKSPACE_ID automatically
+SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)
+```
+All subsequent commands follow the pattern `cmux browser --surface $SURFACE <subcommand> [args]`. Close surfaces when done with `cmux close-surface --surface $SURFACE`.
 
 Evaluates through a Human-First lens across five layers:
 

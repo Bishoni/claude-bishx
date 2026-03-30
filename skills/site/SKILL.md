@@ -942,14 +942,14 @@ Store resolved URL as `{site_url}`.
 
 ### cmux Verification
 
-**cmux is a native macOS terminal application — not an MCP server, not a library.**
-All cmux commands run via **Bash** as regular shell commands.
+**Read `~/.claude/skill-library/references/cmux-browser.md` for the full cmux browser reference** (commands, type vs fill, viewport, React forms, troubleshooting).
 
-Verify cmux browser is available by opening a browser surface:
+Open a browser surface:
 ```bash
-SURFACE=$(cmux browser open {site_url})
+RAW=$(cmux browser open {site_url})
+SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)
 ```
-This returns a surface ID like `surface:11`. Store it in `$SURFACE`.
+Store the surface ID in `$SURFACE`.
 If the command fails (cmux not installed) → STOP and tell user to install cmux.
 
 All subsequent browser commands follow the pattern:
@@ -980,7 +980,8 @@ and why in `sitemap.md`.
 #### Step 1: Initial Crawl
 
 ```bash
-SURFACE=$(cmux browser open {site_url})
+RAW=$(cmux browser open {site_url})
+SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)
 cmux browser --surface $SURFACE wait --load-state complete
 ```
 

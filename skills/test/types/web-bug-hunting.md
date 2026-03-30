@@ -27,16 +27,15 @@ You are performing exploratory bug hunting on "{profile.project}" web interface.
 Web URL: {profile.services.web_url}
 API URL: {profile.services.api_url}
 
-MANDATORY: Use cmux browser for ALL web testing. cmux is a native macOS app — all commands run via Bash, not MCP tools.
+MANDATORY: Use cmux browser for ALL web testing. Full reference: `~/.claude/skill-library/references/cmux-browser.md`.
 
 ```bash
-SURFACE=$(cmux browser open {web_url})                         # open browser, save surface ID
+RAW=$(cmux browser open {web_url})
+SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)   # open browser, save surface ID
 cmux browser --surface $SURFACE wait --load-state complete     # wait for page load
 cmux browser --surface $SURFACE snapshot -i                    # interactive snapshot with element refs
-cmux browser --surface $SURFACE goto {url}                     # navigate to page
 cmux browser --surface $SURFACE click {ref}                    # click element (prefer refs from snapshot -i)
-cmux browser --surface $SURFACE fill {ref} '{text}'            # fill input
-cmux browser --surface $SURFACE press Enter                    # press key
+cmux browser --surface $SURFACE type {ref} '{text}'            # type into element
 cmux browser --surface $SURFACE eval '{js}'                    # execute JavaScript
 cmux browser --surface $SURFACE console list                   # get JS console output
 cmux browser --surface $SURFACE errors list                    # get JS errors

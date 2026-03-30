@@ -20,17 +20,15 @@ You are performing accessibility (a11y) testing of "{profile.project}".
 
 Web URL: {profile.services.web_url}
 
-MANDATORY: Use cmux browser for all checks. cmux is a native macOS app — all commands run via Bash, not MCP tools.
+MANDATORY: Use cmux browser for all checks. Full reference: `~/.claude/skill-library/references/cmux-browser.md`.
 
 ```bash
-SURFACE=$(cmux browser open {url})                              # open browser, save surface ID
+RAW=$(cmux browser open {url})
+SURFACE=$(echo "$RAW" | grep -o 'surface:[0-9]*' | head -1)    # open browser, save surface ID
 cmux browser --surface $SURFACE wait --load-state complete      # wait for page load
-cmux browser --surface $SURFACE goto {url}                      # navigate to page
-cmux browser --surface $SURFACE snapshot -i                     # accessibility tree + element refs (primary a11y tool)
+cmux browser --surface $SURFACE snapshot -i                     # accessibility tree + element refs
 cmux browser --surface $SURFACE click {ref}                     # interact (prefer refs from snapshot -i)
 cmux browser --surface $SURFACE press Tab                       # keyboard navigation
-cmux browser --surface $SURFACE press Escape                    # close modals/dropdowns
-cmux browser --surface $SURFACE press Enter                     # activate elements
 cmux browser --surface $SURFACE screenshot --out /tmp/a11y.png  # capture visual state
 cmux browser --surface $SURFACE eval '{js}'                     # run accessibility checks via JS
 cmux close-surface --surface $SURFACE                           # MANDATORY when done
