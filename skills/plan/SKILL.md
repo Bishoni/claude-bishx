@@ -463,6 +463,7 @@ Each decision recorded with WHY (ADR-style):
 ### Step 7: Update State & Signal
 
 1. **Update state.json:** Keep `phase` as `"interview"`, set `interview_round` to final round number, `pipeline_actor` as `""`
+   - **CRITICAL: `task_description` is IMMUTABLE.** When updating state.json, you MUST preserve the original `task_description` value exactly as it was initialized. Read the current state.json first, then update only the fields that changed. Never rewrite, summarize, or shorten `task_description`.
 2. **Emit `<bishx-plan-done>`**
 
 ## Complexity Gate (between Interview and Research)
@@ -873,7 +874,7 @@ This is saved to `~/.bishx/feedback/` and read by Researcher in future sessions 
 ## Rules
 
 1. **NEVER skip a required actor.** Every iteration runs Planner + all always-on reviewers + Critic. Conditional actors run based on Project Profile.
-2. **ALWAYS update state.json before emitting signals.** The hook depends on this.
+2. **ALWAYS update state.json before emitting signals.** The hook depends on this. When updating, READ the current state.json first, modify only the changed fields, WRITE back. **Never rewrite `task_description`** — it is immutable after initialization.
 3. **ALWAYS pass file contents in Task prompts.** Subagents cannot read the orchestrator's files on their own. Reviewers write their own reports to disk via OUTPUT_PATH protocol — main agent does NOT re-write them, only verifies files exist.
 4. **Keep context compact.** Each actor gets what it needs, nothing more. CONTEXT.md + PLAN.md for reviewers. All reports for Critic.
 5. **Respect the human.** During interview, wait for real answers. Don't auto-answer gray areas.
