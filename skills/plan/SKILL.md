@@ -463,7 +463,8 @@ Each decision recorded with WHY (ADR-style):
 ### Step 7: Update State & Signal
 
 1. **Update state.json:** Keep `phase` as `"interview"`, set `interview_round` to final round number, `pipeline_actor` as `""`
-   - **CRITICAL: `task_description` is IMMUTABLE.** When updating state.json, you MUST preserve the original `task_description` value exactly as it was initialized. Read the current state.json first, then update only the fields that changed. Never rewrite, summarize, or shorten `task_description`.
+   - You MAY update `task_description` here (and ONLY here) if the interview meaningfully changed the scope. If scope didn't change — leave it as-is.
+   - **After this point, `task_description` is FROZEN.** No subsequent phase (research, pipeline, iterations) may modify it. When updating state.json in later phases, always READ the file first, then use Edit to change only the specific fields that need updating. Never Write the full file from memory — `task_description` will be lost to context compaction.
 2. **Emit `<bishx-plan-done>`**
 
 ## Complexity Gate (between Interview and Research)
@@ -727,7 +728,7 @@ VERIFIED → REGRESSED (broken again) → auto-escalated severity
   "active": true,
   "session_id": "string",
   "session_dir": "string",
-  "task_description": "string",
+  "task_description": "string (FROZEN after interview Step 7 — update only via Edit, never rewrite)",
   "iteration": 1,
   "max_iterations": 10,
   "tdd_enabled": true,
@@ -874,7 +875,7 @@ This is saved to `~/.bishx/feedback/` and read by Researcher in future sessions 
 ## Rules
 
 1. **NEVER skip a required actor.** Every iteration runs Planner + all always-on reviewers + Critic. Conditional actors run based on Project Profile.
-2. **ALWAYS update state.json before emitting signals.** The hook depends on this. When updating, READ the current state.json first, modify only the changed fields, WRITE back. **Never rewrite `task_description`** — it is immutable after initialization.
+2. **ALWAYS update state.json before emitting signals.** The hook depends on this. **Use Edit (not Write) for state.json updates** — read the file, change only the fields that need updating. `task_description` is FROZEN after Step 7 of the interview — never modify it in pipeline/research/iteration phases.
 3. **ALWAYS pass file contents in Task prompts.** Subagents cannot read the orchestrator's files on their own. Reviewers write their own reports to disk via OUTPUT_PATH protocol — main agent does NOT re-write them, only verifies files exist.
 4. **Keep context compact.** Each actor gets what it needs, nothing more. CONTEXT.md + PLAN.md for reviewers. All reports for Critic.
 5. **Respect the human.** During interview, wait for real answers. Don't auto-answer gray areas.
