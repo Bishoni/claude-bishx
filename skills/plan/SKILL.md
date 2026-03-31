@@ -374,13 +374,26 @@ Update `state.json` with final counts: `interview_must_resolve_total` and `inter
 
 ### Step 6: Write Expanded CONTEXT.md
 
-Write `{SESSION}/CONTEXT.md` with this structure:
+Write `{SESSION}/CONTEXT.md` with this structure.
+
+**QUALITY RULES (apply before writing each section):**
+1. **No duplication.** Each fact appears in ONE canonical section. Other sections reference it, not repeat it. If a decision is in "Decisions & Trade-offs", do NOT restate it in Gray Areas, Constraints, or Anti-Requirements.
+2. **No filler.** If a section has nothing meaningful to say, write "N/A" — don't pad with generic content.
+3. **No micro-decisions.** Decisions must be architectural (affect multiple files, change data flow, or have alternatives with real trade-offs). "Use CSS grid for layout" or "Use IconCopy for copy button" are NOT decisions.
+4. **No generic risks.** Risks must be specific to THIS project and THIS task. "Performance might degrade" or "Scope creep" are NOT risks.
+5. **No tech-stack-as-assumptions.** Tool/library choices (Google Fonts, Lucide icons) belong in Project Profile or Decisions, NOT in Assumptions.
+6. **Conditional sections.** For TRIVIAL/SMALL tasks, skip sections marked [SKIP IF SIMPLE] below. For MEDIUM+ include all.
 
 ```markdown
 # Bishx-Plan Context
 
 ## Task Description
-[Original request, verbatim]
+
+### Original Request (verbatim)
+[Copy the EXACT text from state.json task_description — do not rephrase, summarize, or clean up]
+
+### Clarified Scope (from interview)
+[Refined understanding after interview — what the task actually means, additional details discovered]
 
 ## Project Profile
 - Type: [frontend/backend/fullstack/CLI/library]
@@ -390,13 +403,16 @@ Write `{SESSION}/CONTEXT.md` with this structure:
 - CI/CD: [yes/no]
 
 ## Codebase Summary
-[Tech stack, project structure, key patterns discovered during exploration]
+[Tech stack, project structure, key patterns discovered during exploration.
+Include specific file paths, existing patterns, and architectural insights.
+For greenfield: "N/A — greenfield project"]
 
 ## User Stories / Scenarios
 [From Scenario Walking — happy path + failure paths]
 - As a [user], I [action] so that [outcome]
 - When [condition], then [expected behavior]
 - When [error condition], then [expected recovery]
+[Include error MESSAGE text for user-facing errors, not just conditions]
 
 ## Scope
 ### In Scope
@@ -404,54 +420,63 @@ Write `{SESSION}/CONTEXT.md` with this structure:
 ### Out of Scope (Explicit)
 - [Item]
 ### Anti-Requirements (Must NOT Do)
-- [Item]
+- [Item — only genuine "must not" constraints, not just "don't break things"]
 
-## Decisions
-Each decision recorded with WHY (ADR-style):
-1. **[Gray area]:** [Decision] — because [rationale]
+## Decisions & Trade-offs
+Architectural decisions with WHY (ADR-style). Include trade-offs here — chose A over B.
+**Filter:** Only decisions that affect architecture, data flow, API design, or have
+real alternatives with trade-offs. NOT: CSS class choices, icon selections,
+single-line implementation details.
+1. **[Decision area]:** [Choice] over [Alternative] — because [rationale]
 2. ...
 
 ## Assumptions
-[Unresolved Nice-to-Know items, recorded as explicit assumptions]
+[Real assumptions that could be WRONG and would change the plan if incorrect]
 - Assuming [X] because [reason]. Override if incorrect.
+**Filter:** NOT tech stack choices (those go in Decisions). NOT obvious defaults
+("assuming Russian language" for a Russian project).
 
 ## Constraints (Frozen)
-[Things that CANNOT be changed]
+[Things that CANNOT be changed — external contracts, legacy APIs, compliance requirements]
 - [Constraint]: [why it's frozen]
 
-## Trade-offs
-[Recorded choices with reasoning]
-- Chose [A] over [B] because [priority/rationale]
-
-## Risks
-[From Risk Elicitation]
+## Risks [SKIP IF SIMPLE]
+[Project-specific risks only. NOT generic advice ("test thoroughly", "may affect performance")]
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| [risk] | H/M/L | H/M/L | [strategy] |
+| [specific risk for THIS task] | H/M/L | H/M/L | [concrete action, not "monitor"] |
 
-## Stakeholders & Dependencies
+## Stakeholders & Dependencies [SKIP IF SIMPLE]
 - [Who is affected]
 - [External dependencies or parallel work]
 
 ## Codebase Notes
-- TODO/FIXME found: [list with file:line]
-- Pattern conflicts: [what and where]
-- Tech debt: [relevant items]
-- Test gaps: [modules with low coverage]
+- TODO/FIXME found: [list with file:line, or "none in scope"]
+- Pattern conflicts: [what and where, or "none"]
+- Tech debt: [relevant items, or "none in scope"]
+- Test gaps: [modules with low coverage, or "N/A"]
 
 ## Success Criteria / Definition of Done
 - [ ] [Specific, testable criterion]
 - [ ] [Specific, testable criterion]
+[Include expected error messages for error-handling tasks.
+Include data volume estimates for data-heavy tasks.
+Include API request/response shapes for API tasks.
+Include migration rollback strategy for migration tasks.]
 
-## Priority Map
+## Priority Map [SKIP IF SIMPLE]
 [If not everything fits, what matters most → least]
 1. [Highest priority item]
 2. ...
 
 ## Gray Areas Resolution Matrix
+Only GENUINELY AMBIGUOUS items resolved during interview.
+**Filter:** Do NOT include items already fully captured in Decisions or Scope.
+A gray area is something where the user could have gone either way and the
+choice was non-obvious. "Which icon to use" is NOT a gray area.
 | # | Gray Area | Dimension | Priority | Status | Resolution |
 |---|-----------|-----------|----------|--------|------------|
-| 1 | [area] | [dim #: name] | Must/Should/Nice | RESOLVED/ASSUMED | [answer or assumption] |
+| 1 | [real ambiguity] | [dim #: name] | Must/Should/Nice | RESOLVED/ASSUMED | [answer] |
 
 ## Interview Metadata
 - Rounds completed: [N]
