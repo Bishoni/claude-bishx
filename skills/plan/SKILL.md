@@ -165,12 +165,13 @@ Before asking ANY questions, deeply explore the codebase:
    - Inconsistent patterns (two ways of doing the same thing) → note them
    - Test coverage gaps in relevant modules → note them
    - Recent git activity in affected areas → note them
+   - **Existing similar implementations** — search for code that already does what the task asks (even partially, broken, or dead). This determines build-from-scratch vs refactor. Note: file paths, what works, what's broken, what's missing.
 
 The Project Profile determines which **dimension groups** are activated for questioning (see Step 2).
 
 ### Step 2: Dimension Selection
 
-There are ~25 possible dimensions to explore, organized into groups. **Activate groups based on the Project Profile** — do NOT ask about irrelevant dimensions.
+There are **38 possible dimensions** to explore, organized into groups. **Activate groups based on the Project Profile** — do NOT ask about irrelevant dimensions.
 
 **ALWAYS Active (Core — every project):**
 | # | Dimension | Key Questions |
@@ -227,6 +228,49 @@ There are ~25 possible dimensions to explore, organized into groups. **Activate 
 | 26 | Pattern conflicts | Two patterns for same thing — which to follow? |
 | 27 | Stakeholders & parallel work | Who else is affected? Concurrent work in this area? |
 
+**Activate if task touches ENTITY LIFECYCLE / STATE CHANGES:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 28 | State machine & entity lifecycle | Which entities have status fields? Current states + transitions? New states needed? What happens to entities in transient states during deploy? |
+| 29 | Concurrency & mutual exclusion | Can multiple users/processes trigger this simultaneously? Shared resources? Need locks (optimistic/pessimistic), queues, or idempotency? Same user in multiple tabs? |
+
+**Activate if task is MEDIUM+ SIZE (3+ scope items):**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 30 | Implementation dependency order | Which parts must be built BEFORE others? Circular dependencies? Minimum viable first slice? Parts that can be built in parallel? |
+| 31 | Existing implementation inventory | Does code for this already exist? What state is it in (working/broken/dead)? Build from scratch vs refactor existing? Gap between what exists and what's needed? |
+
+**Activate if task involves PRODUCTION DEPLOY or MIGRATIONS:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 32 | Rollback & recovery | How to roll back if deploy breaks something? Migration reversible? What happens to data created after deploy if we roll back? Safe mode / degraded functionality option? |
+| 33 | Data volume & growth projection | How much data per day/month (records, files, bytes)? When do we hit first scaling wall? Need archival/partitioning from day one? Query pattern (reads vs writes, hot vs cold)? |
+
+**Activate if task adds NEW BEHAVIOR or CONFIGURABLE PARAMETERS:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 34 | Configuration & feature flags | Need a kill switch (feature flag)? Parameters configurable without redeployment (thresholds, limits, intervals)? Environment-specific settings (dev vs prod)? Where does config live (.env, DB, config file)? |
+
+**Activate if task has MULTI-STAKEHOLDER / INTEGRATION dependencies:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 35 | External blockers & pre-conditions | What info/access/decisions needed from OTHER PEOPLE before this can start? Environment prerequisites (infra, credentials, API keys)? Which scope items are blocked? Fallback if blocker isn't resolved? |
+
+**Activate if project has BACKGROUND PROCESSING / ASYNC WORK:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 36 | Background processing & queue design | What runs asynchronously? Queue/scheduler mechanism? Job types and priorities? Retry/failure semantics? Batch limits? Drain behavior on shutdown? |
+
+**Activate if project STORES FILES ON DISK (not just DB):**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 37 | File/blob storage & media lifecycle | Where do files live on disk? Directory structure convention? Shared volumes across services? Orphan file cleanup on failure? Encryption at rest? Format conversion chain? |
+
+**Activate if project has WEBSOCKET / SSE / LIVE UPDATES:**
+| # | Dimension | Key Questions |
+|---|-----------|---------------|
+| 38 | Real-time communication | Push mechanism (WebSocket/SSE/polling)? Reconnect strategy? Message loss handling? REST fallback? UI for connection status? |
+
 ### Step 3: Priority Classification
 
 Before presenting questions, classify each identified gray area:
@@ -264,9 +308,11 @@ Present what you found during exploration:
 > 2. Auth is handled via [Z]...
 > 3. Tests use [W] with coverage at ~N%...
 > 4. I noticed [TODO/pattern/tech debt] in [files]...
+> 5. I found existing code related to this task: [files/modules] — it [works/is broken/is dead code/partially implements the feature]...
 > Is this accurate? Anything I'm missing or misunderstanding?"
 
 This saves time — the user corrects rather than explains from scratch.
+The existing code discovery (point 5) is critical — it determines whether the plan is "build from scratch" or "refactor existing".
 
 #### Round 1: Intent & Scope (Why, What, Who)
 
@@ -288,12 +334,14 @@ Focus on Must-Resolve items from dimensions 1-5:
 If the project has a UI/UX component:
 - Walk through the happy path together: "User opens the page → clicks [X] → sees [Y] → ... what happens next?"
 - Walk through failure paths: "What if the token expires? What if the API is down? What if there's no data?"
+- **For each error case, propose a user-facing error message** for the user to approve/adjust: "I'd suggest showing 'File is too large. Maximum size: 2 GB' — does that work?"
 - "What worries you most about this feature?" (risk elicitation)
 
 If backend/API only:
 - Walk through the request lifecycle
 - "What happens when [edge case]?"
 - Error scenarios and expected behavior
+- **For API errors, propose HTTP status + response body**: "I'd return 422 with `{error: 'invalid_format', message: '...'}` — OK?"
 
 #### Round 3: Technical Decisions (How, With What)
 
@@ -302,8 +350,9 @@ If backend/API only:
 Focus on dimensions activated by Project Profile:
 - Technology choices + trade-offs: "If you had to choose between [speed of development] and [full edge-case coverage], which wins?"
 - Data model decisions
-- Integration specifics
-- Security model (if applicable)
+- Integration specifics — **for new API endpoints, propose request/response shapes**: "I'm thinking `POST /api/v1/upload` returns `{id, status, progress}` — does that match your expectations?"
+- Security model (if applicable) — **sub-question if task touches auth**: "Does this feature modify the auth flow, add identity paths, or map users across systems?"
+- **Data volume estimates** (if new tables/files/logs): "How many [records/uploads/events] per day do you expect? 100? 1000? 10000+?"
 - Codebase-Driven: "I found [pattern A] in module X and [pattern B] in module Y — which should I follow?"
 - Codebase-Driven: "There's a TODO at [file:line] about [X] — relevant to this task?"
 
