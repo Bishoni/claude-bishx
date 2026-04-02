@@ -618,6 +618,22 @@ if [[ -f "$RUN_STATE" ]]; then
   RUN_ACTIVE=$(jq -r '.active // false' "$RUN_STATE")
   if [[ "$RUN_ACTIVE" == "true" ]]; then
 
+    # Teammates (dev, qa, reviewers) should NOT be blocked by this hook.
+    # Only Lead should be kept alive. Detect by comparing session_id:
+    # First Stop call records Lead's session_id. Subsequent calls from
+    # teammate panes (different session_id) are allowed through.
+    HOOK_SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+    LEAD_SESSION_ID=$(jq -r '.lead_session_id // ""' "$RUN_STATE" 2>/dev/null || echo "")
+    if [[ -n "$HOOK_SESSION_ID" ]]; then
+      if [[ -z "$LEAD_SESSION_ID" || "$LEAD_SESSION_ID" == "null" ]]; then
+        # First Stop call — record Lead's session_id
+        jq --arg sid "$HOOK_SESSION_ID" '.lead_session_id = $sid' "$RUN_STATE" > "$RUN_STATE.tmp" && mv "$RUN_STATE.tmp" "$RUN_STATE"
+      elif [[ "$HOOK_SESSION_ID" != "$LEAD_SESSION_ID" ]]; then
+        # Different session_id → this is a teammate pane, not Lead — allow stop
+        exit 0
+      fi
+    fi
+
     CURRENT_TASK=$(jq -r '.current_task // ""' "$RUN_STATE")
 
     # Signal: complete — allow exit
