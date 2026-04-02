@@ -83,7 +83,24 @@ Task(
    - `git status --porcelain` → clean?
    - `bd status` → ok?
    - `bd list --status in_progress` → orphaned tasks?
-     Have commits → keep in_progress. Before entering the main loop, process these orphans: for each orphan task, go directly to main loop step 6 (review), composing the review brief from `git log` and `git diff` of the task's commits instead of dev's report. After review passes → commit/push if needed → QA → close. Then enter the main loop normally.
+     Have commits → keep in_progress. Before entering the main loop, process these orphans:
+       For each orphan task:
+       a. Determine phase from task ID (up to last dot). Set `current_phase` in state.
+       b. Identify commits: search `git log --oneline` for `[{task_id}]` in commit messages.
+       c. Compose adapted review brief:
+          ```
+          ## Review Brief for task {id} (orphan recovery)
+          **Task:** {bd show task_id}
+          **Dev's report:** (orphan — no dev report; commits found in git log)
+          **Changed files:** {git diff --stat of orphan commits}
+          **What to look for:** {acceptance criteria from task}
+          ```
+       d. Spawn three reviewers (step 6b) with this brief. Run review (step 7).
+       e. If review finds CRITICAL/MAJOR: spawn dev to fix, then re-review (same as step 7d-7e).
+          Skip "Send Review passed to dev" (step 7c) — no persistent dev for orphans.
+       f. After review passes → push if not already on remote → QA → `bd close {id} && bd sync`.
+       g. Shutdown all reviewers and dev (if spawned).
+       Then enter the main loop normally.
      No commits → `bd update {id} --status open`.
    - `bd ready` → how many tasks
 3. Create `.omc/state/bishx-run-state.json` with: active=true, team_name, current_phase="", current_task="", epic_id="", teammates={}, waiting_for=""
@@ -116,7 +133,7 @@ Before entering the main loop, select which epic to work on.
 4. **If `epic_query` is set** (user passed epic name as argument):
    - Search among epics WITH available tasks for a case-insensitive partial match of `epic_query` in the epic title
    - **Exactly 1 match** → auto-select it, tell user: "Epic selected: {title} ({N} tasks ready)"
-   - **Multiple matches** → show only matched epics in AskUserQuestion (same format as step 5)
+   - **Multiple matches** → show only matched epics in AskUserQuestion (same format as step 6)
    - **0 matches among epics with tasks** → tell user: "No available epic matching '{epic_query}'". Fall through to standard selection (step 5)
 
 5. **Decision logic** (standard, when no argument or argument didn't match):
@@ -248,7 +265,7 @@ LOOP:
      Once ALL THREE replied, clear waiting_for:
      `jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json`
 
-       7a. MERGE: Combine issues from all three reviewers. Deduplicate (same file:line = one issue).
+       7a. MERGE: Combine issues from all three reviewers. Deduplicate (same file:line AND same root cause = one issue; keep both if they describe different problems, e.g., a logic bug vs. a security vulnerability at the same line).
 
        7b. VALIDATE CRITICAL/MAJOR (per-issue sonnet subagents):
            For each [CRITICAL] or [MAJOR] issue, spawn a validation subagent:
@@ -261,11 +278,12 @@ LOOP:
              mode="bypassPermissions",
              prompt="You are an issue validator. Confirm or reject this finding.
                      Task context: {review brief}
+                     Issue ID: {issue_id}
                      Issue: {issue description with file:line}
                      Read the file at the specified location.
                      Answer ONLY:
-                       CONFIRMED — {why this is a real issue}
-                       or REJECTED — {specific reason the reviewer is wrong,
+                       CONFIRMED {issue_id} — {why this is a real issue}
+                       or REJECTED {issue_id} — {specific reason the reviewer is wrong,
                        e.g. 'variable defined on line 12', 'framework sanitizes automatically'}"
            )
            ```
@@ -281,14 +299,14 @@ LOOP:
            If zero [CRITICAL] + zero [MAJOR] after validation AND Bug Reviewer reported automated checks passing → "Review passed".
              Send "Review passed" to dev (for awareness). Go to step 8.
            If zero [CRITICAL] + zero [MAJOR] BUT automated checks failed → send test/lint/typecheck failure details to dev as a blocking issue. Go to step 7d (wait for dev fix). This counts as a review round.
-           If any [CRITICAL] or [MAJOR] survived validation → send merged+validated list to dev:
+           If any [CRITICAL] or [MAJOR] survived validation → send merged+validated list to dev (preserve issue IDs from reviewers):
              "Review found issues. Fix these:
-              [CRITICAL] file:line — description — recommendation
-              [MAJOR] file:line — description — recommendation
-              [MINOR] file:line — description (non-blocking, for awareness)
-              [INFO] file:line — description (non-blocking, for awareness)"
+              [CRITICAL] BUG-001 file:line — description — recommendation
+              [MAJOR] SEC-001 file:line — description — recommendation
+              [MINOR] COMP-001 file:line — description (non-blocking, for awareness)
+              [INFO] BUG-002 file:line — description (non-blocking, for awareness)"
 
-       7d. Set waiting_for="dev". WAIT dev → "Fixed, files: [...]". Clear waiting_for.
+       7d. Set waiting_for="dev". WAIT dev → "Fixed: {issue IDs and actions}, files: [...]". Clear waiting_for.
 
        7e. Increment review_round. If review_round >= 5 → tell user "Review failed after 5 rounds: {remaining issues}. Manual intervention required." `bd update {id} --status open`, go to next task (GOTO main loop step 1).
            Otherwise → Shutdown all three reviewers. Re-compose review brief (step 6a) using dev's latest "Fixed" message and updated file list. Spawn fresh trio (step 6b). Update state: teammates.bug_reviewer, teammates.security_reviewer, teammates.compliance_reviewer with new names. Repeat from step 7 (set waiting_for, wait for new reviewers).
@@ -299,7 +317,8 @@ LOOP:
 
   8. TaskUpdate → "[{id}] Commit & push" → in_progress.
      LEAD COMMITS AND PUSHES (only after review passed):
-     git add <files> && git commit -m "<message>" && git push
+     git add <files> && git commit -m "[{id}] <description>" && git push
+     Commit message MUST start with `[{task_id}]` — this is used for orphan task identification on recovery.
      NEVER add .beads/ or .omc/ files — they are gitignored. Only add project source files.
      Do NOT run git pull/rebase before commit — it will fail on unstaged changes.
      Do NOT run bd close yet — QA must pass first.
@@ -310,6 +329,11 @@ LOOP:
      qa alive (check state.teammates.qa) and same phase → SendMessage(recipient=state.teammates.qa, content=task).
      Otherwise → spawn new qa. Update state: teammates.qa = "{new_qa_name}".
      When spawning qa, fill `{bd show EPIC_ID}` in the "Feature context" section of qa's prompt with actual `bd show {state.epic_id}` output.
+     Also include a list of previously completed tasks in this phase for regression testing:
+     "Previously completed tasks in this phase:
+      - {task_id}: {title} (key functionality: {1-line summary})
+      - ..."
+     Get this from `bd children {state.epic_id} --json` (returns features), then for each feature `bd children {feature_id} --json` (returns tasks). Filter tasks where task ID starts with `{current_phase}.` (with dot, to avoid matching e.g. `fv40` when phase is `fv4`) and status=closed.
 
   10. UPDATE STATE — run this BEFORE waiting:
       ```bash
@@ -649,16 +673,28 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 {bd show task_id — FULL output}
 
 ## Workflow
-1. Implement the task
-2. Run tests, linter, and formatter — make sure everything passes before reporting Done
-3. Notify Lead: "Done, files: [list]"
-4. Wait for Lead to send review results. Lead runs three parallel reviewers (Bug, Security, Compliance) and merges their findings.
-   If review issues found, Lead will send you a merged list:
+1. TDD DECISION: Before writing any code, ask yourself: "Can I write a test for this BEFORE implementing?" 
+   - YES (pure function, API endpoint, data transform) → write test first, see it fail, then implement until it passes.
+   - NO (UI, config, infra) → implement first, then add verification.
+   - NO TEST INFRA (no test framework in project) → implement first. Add test infra only if the task specifically requires it.
+   This is a per-task decision. Don't skip the question.
+2. Implement the task
+3. Run tests, linter, and formatter — make sure everything passes
+4. SELF-VALIDATION (before reporting Done — do this internally, do NOT send to Lead):
+   - [ ] All acceptance criteria from the task covered? None skipped?
+   - [ ] Only touched files relevant to this task? No unrelated changes?
+   - [ ] Tests pass? Linter clean? No new warnings?
+   - [ ] Code follows existing patterns in the codebase? (not inventing new patterns)
+   - [ ] No hardcoded values, secrets, or test-fitted logic?
+   If any check fails → fix it before reporting Done.
+5. Notify Lead: "Done, files: [list]"
+6. Wait for Lead to send review results. Lead runs three parallel reviewers (Bug, Security, Compliance) and merges their findings.
+   If review issues found, Lead will send you a merged list. Each issue has a unique ID (BUG-NNN, SEC-NNN, COMP-NNN):
    - [CRITICAL] / [MAJOR] → MUST fix
    - [MINOR] → fix if easy
    - [INFO] → at your discretion
-5. After fixes → reply to Lead: "Fixed: [what you fixed], files: [list]"
-6. Lead re-runs reviewers. Repeat until review passes (max 5 rounds).
+7. After fixes → reply to Lead: "Fixed: BUG-001 (did X), SEC-001 (did Y), files: [list]" — reference issue IDs.
+8. Lead re-runs reviewers. Repeat until review passes (max 5 rounds).
    When Lead says "Review passed" → idle. Lead will commit/push and run QA.
    You may receive QA feedback from Lead later — fix and go through review again.
    Do NOT worry about being idle — it's normal during commit/QA phase.
@@ -757,12 +793,12 @@ If you are not certain an issue is real — do not flag it.
    - Remove any finding that is a security concern (not your job)
 6. Send results to Lead (NOT to dev):
    - If no issues: "Bug review: no issues found for task {id}. Automated checks: [pass/fail details]."
-   - If issues found:
+   - If issues found (assign sequential IDs: BUG-001, BUG-002, etc.):
      "Bug review for task {id}:
-      [CRITICAL] file:line — description — recommendation
-      [MAJOR] file:line — description — recommendation
-      [MINOR] file:line — description (non-blocking)
-      [INFO] file:line — description (non-blocking)
+      [CRITICAL] BUG-001 file:line — description — recommendation
+      [MAJOR] BUG-002 file:line — description — recommendation
+      [MINOR] BUG-003 file:line — description (non-blocking)
+      [INFO] BUG-004 file:line — description (non-blocking)
       Automated checks: [pass/fail details]."
 
 ## Python projects
@@ -860,12 +896,12 @@ If you are not certain a vulnerability is exploitable — do not flag it.
    - Remove any finding that is a correctness/logic concern (not your job)
 5. Send results to Lead (NOT to dev):
    - If no issues: "Security review: no issues found for task {id}."
-   - If issues found:
+   - If issues found (assign sequential IDs: SEC-001, SEC-002, etc.):
      "Security review for task {id}:
-      [CRITICAL] file:line — vulnerability — attack vector — recommendation
-      [MAJOR] file:line — vulnerability — attack vector — recommendation
-      [MINOR] file:line — concern — recommendation (non-blocking)
-      [INFO] file:line — observation (non-blocking)."
+      [CRITICAL] SEC-001 file:line — vulnerability — attack vector — recommendation
+      [MAJOR] SEC-002 file:line — vulnerability — attack vector — recommendation
+      [MINOR] SEC-003 file:line — concern — recommendation (non-blocking)
+      [INFO] SEC-004 file:line — observation (non-blocking)."
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
@@ -953,12 +989,12 @@ If you cannot quote the exact rule being violated — do not flag it.
    - If no → remove
 6. Send results to Lead (NOT to dev):
    - If no issues: "Compliance review: no issues found for task {id}."
-   - If issues found:
+   - If issues found (assign sequential IDs: COMP-001, COMP-002, etc.):
      "Compliance review for task {id}:
-      [CRITICAL] file:line — violation — rule: '{exact quote from CLAUDE.md}'
-      [MAJOR] file:line — violation — rule: '{exact quote from CLAUDE.md}'
-      [MINOR] file:line — deviation — recommendation (non-blocking)
-      [INFO] file:line — observation (non-blocking)."
+      [CRITICAL] COMP-001 file:line — violation — rule: '{exact quote from CLAUDE.md}'
+      [MAJOR] COMP-002 file:line — violation — rule: '{exact quote from CLAUDE.md}'
+      [MINOR] COMP-003 file:line — deviation — recommendation (non-blocking)
+      [INFO] COMP-004 file:line — observation (non-blocking)."
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
@@ -1003,21 +1039,23 @@ Read this to understand the full feature you're testing — user stories give yo
 3. Check EVERY acceptance criterion: met or not
 4. Run smoke tests — nothing broken?
 5. Check edge cases: empty data, invalid input, boundary values
-6. **CLOSE BROWSER IMMEDIATELY** after finishing all checks for this task. Run `cmux close-surface --surface $S` right now. Do NOT proceed to step 7 with browser still open.
-7. If bug — describe to Lead:
+6. REGRESSION CHECK: If this is NOT the first task in this phase (Lead provides list of previous tasks), smoke-test their key functionality. Verify nothing is broken by the current changes. Report regressions with severity matching their actual impact (P1-P4).
+7. **CLOSE BROWSER IMMEDIATELY** after finishing all checks for this task. Run `cmux close-surface --surface $S` right now. Do NOT proceed to step 8 with browser still open.
+8. If bug — describe to Lead:
    - Severity: P1 (blocker/crash), P2 (major UX), P3 (minor), P4 (cosmetic)
    - What: problem description
    - Where: page/screen/command, specific element
    - Steps: how to reproduce (step by step)
    - Expected vs actual
-8. SELF-CHECK (before sending result to Lead):
+9. SELF-CHECK (before sending result to Lead):
    - [ ] All acceptance criteria checked? None skipped?
    - [ ] Smoke tests passed? Nothing broken?
    - [ ] Edge cases checked? (empty data, invalid input, boundary values)
+   - [ ] Regression check done? (previous tasks in this phase still work?)
    - [ ] Real behavior verified? (not just code, actual app behavior)
    - [ ] All found bugs described with severity, steps, expected vs actual?
    - [ ] Browser closed? (if not → `cmux close-surface --surface $S` NOW)
-9. Result → Lead: "QA passed for task {id}" OR "QA failed: {issues}"
+10. Result → Lead: "QA passed for task {id}" OR "QA failed: {issues}"
 
 ## cmux browser reference
 
@@ -1043,7 +1081,7 @@ Stop hook keeps the loop alive between tasks.
 
 ## State Files
 
-- `.omc/state/bishx-run-state.json` — active, team_name, current_phase (values: feature phase ID or `"release"`), current_task, epic_id, teammates (`{"dev":"dev-1","qa":"qa","bug_reviewer":"bug-rev-3","security_reviewer":"sec-rev-3","compliance_reviewer":"comp-rev-3"}`), waiting_for
+- `.omc/state/bishx-run-state.json` — active, team_name, current_phase (values: feature phase ID or `"release"`), current_task, epic_id, teammates (`{"dev":"dev-1","qa":"qa","bug_reviewer":"bug-rev-3","security_reviewer":"sec-rev-3","compliance_reviewer":"comp-rev-3","operator":"op-1"}`), waiting_for
 - `.omc/state/bishx-run-context.md` — Lead overwrites after every event
 
 ## Recovery (after restart / context compression / resume)
@@ -1064,7 +1102,7 @@ Team MUST exist before any Task calls.
 
 ### Step 3: Check ground truth
 Run these to understand the REAL state of the project:
-- `bd children {state.epic_id} --json` — which tasks are in_progress, open, closed
+- `bd children {state.epic_id} --json` (returns features) → for each feature: `bd children {feature_id} --json` (returns tasks) — check which tasks are in_progress, open, closed
 - `bd show {current_task}` — task scope and acceptance criteria
 - `git log --oneline -10` — what was already committed for this task
 - `git status --porcelain` + `git diff --stat` — uncommitted work from dev
