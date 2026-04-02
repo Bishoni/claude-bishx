@@ -103,7 +103,8 @@ Task(
        Then enter the main loop normally.
      No commits → `bd update {id} --status open`.
    - `bd ready` → how many tasks
-3. Create `.omc/state/bishx-run-state.json` with: active=true, team_name, current_phase="", current_task="", epic_id="", teammates={}, waiting_for=""
+3. `mkdir -p .omc/state` (ensure directory exists).
+   Create `.omc/state/bishx-run-state.json` with: active=true, team_name, current_phase="", current_task="", epic_id="", teammates={}, waiting_for=""
    Create `.omc/state/bishx-run-context.md` with initial summary: "Session started. No tasks assigned yet."
 4. Epic selection (Phase 0.5).
 5. Proceed to main loop.
