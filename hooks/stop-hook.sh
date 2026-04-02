@@ -618,9 +618,7 @@ if [[ -f "$RUN_STATE" ]]; then
   RUN_ACTIVE=$(jq -r '.active // false' "$RUN_STATE")
   if [[ "$RUN_ACTIVE" == "true" ]]; then
 
-    PAUSED=$(jq -r '.paused // false' "$RUN_STATE")
     CURRENT_TASK=$(jq -r '.current_task // ""' "$RUN_STATE")
-    MODE=$(jq -r '.mode // "full"' "$RUN_STATE")
 
     # Signal: complete — allow exit
     if echo "$LAST_OUTPUT" | grep -q "<bishx-complete>"; then
@@ -628,13 +626,7 @@ if [[ -f "$RUN_STATE" ]]; then
       exit 0
     fi
 
-    # Session is paused — allow exit
-    if [[ "$PAUSED" == "true" ]]; then
-      exit 0
-    fi
-
-    # Active session, not paused, no complete signal → keep the loop alive
-    COMPLETED=$(jq -r '.completed_tasks | length' "$RUN_STATE" 2>/dev/null || echo "0")
+    # Active session, no complete signal → keep the loop alive
     WAITING_FOR=$(jq -r '.waiting_for // ""' "$RUN_STATE" 2>/dev/null || echo "")
 
     if [[ -n "$WAITING_FOR" && "$WAITING_FOR" != "null" ]]; then
