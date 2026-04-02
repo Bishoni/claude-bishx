@@ -293,6 +293,7 @@ LOOP:
            `jq '.waiting_for = "validators"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json`
            Wait for all to respond. Clear waiting_for:
            `jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json`
+           Shutdown ALL validators immediately: SendMessage(type="shutdown_request") to each validator-{N}.
            Drop any issue marked REJECTED.
            [MINOR] and [INFO] skip validation — pass through as-is.
 
