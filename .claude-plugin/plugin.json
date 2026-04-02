@@ -1,6 +1,6 @@
 {
   "name": "bishx",
-  "version": "2.8.1",
+  "version": "2.8.2",
   "description": "Full dev lifecycle: idea → prompt → plan → run → site audit. Multi-agent task executor with bd integration.",
   "author": {
     "name": "bish"
