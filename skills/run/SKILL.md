@@ -76,7 +76,7 @@ Task(
 ## Phase 0: Initialization
 
 `{project}` = name of the current working directory (`basename $(pwd)`). Use this value for team names and temp file paths throughout the session.
-`{lead_name}` = Lead's name for teammate communication. In all spawn prompts, tell teammates to send messages to `"*"` (broadcast) as the recipient. This avoids name resolution issues. Set `{lead_name}` to `"*"` in all spawn prompts.
+`{lead_name}` = Lead's own name in the team. After TeamCreate, check the team response or your own identity to determine your name. Use this name as `{lead_name}` in all spawn prompts so teammates can SendMessage back to you.
 
 1. `TeamCreate(team_name="bishx-run-{project}")`
 2. Preflight:
