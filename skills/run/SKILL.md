@@ -373,8 +373,8 @@ LOOP:
 
            CASE B — REVIEW PASSED WITH MINOR/INFO ONLY:
              Zero [CRITICAL] + zero [MAJOR] after validation, AND automated checks passing, BUT [MINOR] or [INFO] issues exist.
-             → Send to dev: "Review passed. Fix these non-blocking items now, then report back:
-                [MINOR] COMP-001 file:line — description (fix if easy)
+             → Send to dev: "Review passed. Fix these items now, then report back:
+                [MINOR] COMP-001 file:line — description (fix)
                 [INFO] BUG-002 file:line — description (at your discretion)"
              → Go to step 7d-minor.
 
@@ -383,7 +383,7 @@ LOOP:
              → Send test/lint/typecheck failure details to dev as a blocking issue.
                If [MINOR] or [INFO] issues also exist, include them in the same message:
                "Automated checks failed: {details}. Also fix these:
-                [MINOR] COMP-001 file:line — description (fix if easy)
+                [MINOR] COMP-001 file:line — description (fix)
                 [INFO] BUG-002 file:line — description (at your discretion)"
              → Go to step 7d-blocking. This counts as a review round.
 
@@ -393,7 +393,7 @@ LOOP:
                 "Review found issues. Fix these:
                  [CRITICAL] BUG-001 file:line — description — recommendation
                  [MAJOR] SEC-001 file:line — description — recommendation
-                 [MINOR] COMP-001 file:line — description (fix now, non-blocking)
+                 [MINOR] COMP-001 file:line — description (fix)
                  [INFO] BUG-002 file:line — description (at your discretion)"
              → Go to step 7d-blocking. This counts as a review round.
 
@@ -836,12 +836,12 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
 6. Wait for Lead to send review results. Lead runs three parallel reviewers (Bug, Security, Compliance) and merges their findings.
    If review issues found, Lead will send you a merged list. Each issue has a unique ID (BUG-NNN, SEC-NNN, COMP-NNN):
    - [CRITICAL] / [MAJOR] → MUST fix
-   - [MINOR] → fix if easy
+   - [MINOR] → fix (not blocking review, but still expected to be fixed)
    - [INFO] → at your discretion
 7. After fixes → reply to Lead: "Fixed: BUG-001 (did X), SEC-001 (did Y), files: [list]" — reference issue IDs.
 8. Lead re-runs reviewers. Repeat until review passes (max 5 rounds).
    When Lead says "Review passed" with NO issues listed → idle. Lead will commit/push and run QA.
-   When Lead says "Review passed" WITH non-blocking items → fix them, report back using the same format: "Fixed: COMP-001 (did X), BUG-002 (skipped, cosmetic), files: [list]", then idle.
+   When Lead says "Review passed" WITH non-blocking items → fix ALL of them, report back using the same format: "Fixed: COMP-001 (did X), BUG-002 (did Y), files: [list]", then idle. Do not skip MINORs.
    You may receive QA feedback from Lead later — fix and go through review again.
    Do NOT worry about being idle — it's normal during commit/QA phase.
 
@@ -900,9 +900,9 @@ Only use these levels. Each has a strict definition — do not reclassify based 
 
 [MAJOR] — Code will produce wrong results regardless of inputs. Clear logic errors (wrong operator, inverted condition, off-by-one that always fires), data loss risks. Always blocking.
 
-[MINOR] — Potential issue that depends on specific inputs, state, or edge cases. Missing boundary check, unhandled nullable. Non-blocking.
+[MINOR] — Potential issue that depends on specific inputs, state, or edge cases. Missing boundary check, unhandled nullable. Does not block review, but dev is expected to fix.
 
-[INFO] — Observation or suggestion. Non-blocking.
+[INFO] — Observation or suggestion. Truly optional.
 
 ## Scope — What to Review
 
@@ -944,8 +944,8 @@ If you are not certain an issue is real — do not flag it.
      "Bug review for task {id}:
       [CRITICAL] BUG-001 file:line — description — recommendation
       [MAJOR] BUG-002 file:line — description — recommendation
-      [MINOR] BUG-003 file:line — description (non-blocking)
-      [INFO] BUG-004 file:line — description (non-blocking)
+      [MINOR] BUG-003 file:line — description
+      [INFO] BUG-004 file:line — observation
       Automated checks: [pass/fail details]."
 
 ## Python projects
@@ -1008,9 +1008,9 @@ Only use these levels. Each has a strict definition — do not reclassify based 
 
 [MAJOR] — Security weakness that requires specific conditions to exploit but is clearly present: stored XSS, SSRF via user-controlled URL, missing auth check on sensitive endpoint, path traversal. Always blocking.
 
-[MINOR] — Defense-in-depth concern: missing rate limiting, overly permissive CORS, logging sensitive data at debug level. Non-blocking.
+[MINOR] — Defense-in-depth concern: missing rate limiting, overly permissive CORS, logging sensitive data at debug level. Does not block review, but dev is expected to fix.
 
-[INFO] — Security observation: could use a more secure alternative, missing security header. Non-blocking.
+[INFO] — Security observation: could use a more secure alternative, missing security header. Truly optional.
 
 ## Scope — What to Review
 
@@ -1048,8 +1048,8 @@ If you are not certain a vulnerability is exploitable — do not flag it.
      "Security review for task {id}:
       [CRITICAL] SEC-001 file:line — vulnerability — attack vector — recommendation
       [MAJOR] SEC-002 file:line — vulnerability — attack vector — recommendation
-      [MINOR] SEC-003 file:line — concern — recommendation (non-blocking)
-      [INFO] SEC-004 file:line — observation (non-blocking)."
+      [MINOR] SEC-003 file:line — concern — recommendation
+      [INFO] SEC-004 file:line — observation"
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
@@ -1104,9 +1104,9 @@ OVERRIDE RULE: Your prompt's severity system (CRITICAL/MAJOR/MINOR/INFO with COM
 
 [MAJOR] — Violation of a clear convention documented in CLAUDE.md/AGENTS.md. The rule exists, the code breaks it. Always blocking.
 
-[MINOR] — Deviation from a recommended (SHOULD) practice in project docs. Non-blocking.
+[MINOR] — Deviation from a recommended (SHOULD) practice in project docs. Does not block review, but dev is expected to fix.
 
-[INFO] — Observation about a convention not explicitly documented. Non-blocking.
+[INFO] — Observation about a convention not explicitly documented. Truly optional.
 
 ## Scope — What to Review
 
@@ -1142,8 +1142,8 @@ If you cannot quote the exact rule being violated — do not flag it.
      "Compliance review for task {id}:
       [CRITICAL] COMP-001 file:line — violation — rule: '{exact quote from CLAUDE.md}'
       [MAJOR] COMP-002 file:line — violation — rule: '{exact quote from CLAUDE.md}'
-      [MINOR] COMP-003 file:line — deviation — recommendation (non-blocking)
-      [INFO] COMP-004 file:line — observation (non-blocking)."
+      [MINOR] COMP-003 file:line — deviation — recommendation
+      [INFO] COMP-004 file:line — observation"
 
 ## Python projects
 If .venv/ or venv/ exists, ALWAYS use .venv/bin/python (or venv/bin/python) instead of python/python3.
