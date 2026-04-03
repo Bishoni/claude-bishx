@@ -96,8 +96,8 @@ Task(
           **What to look for:** {acceptance criteria from task}
           ```
        d. Spawn three reviewers (step 6b) with this brief. Run review (step 7).
-       e. If review finds CRITICAL/MAJOR: spawn dev to fix, then re-review (same as step 7d-7e).
-          Skip "Send Review passed to dev" (step 7c) — no persistent dev for orphans.
+       e. If review finds CRITICAL/MAJOR: spawn dev to fix, then re-review (same as step 7d-blocking → 7e).
+          Skip "Send Review passed to dev" (step 7c CASE A/B) — no persistent dev for orphans.
        f. After review passes → push if not already on remote → QA → `bd close {id} && bd sync`.
        g. Shutdown all reviewers and dev (if spawned).
        Then enter the main loop normally.
@@ -183,30 +183,74 @@ LOOP:
        TaskCreate(subject="[{id}] Close in bd", activeForm="Closing {id}...")
 
   3.5. SKILL LOOKUP (Lead does this ONCE per task, agents do NOT search themselves):
-       Task may span multiple categories. Each agent gets ≤1500 lines of skills total.
-       1. Read `~/.claude/skill-library/INDEX.md` — match task to ALL relevant categories
-       2. For each category: read `~/.claude/skill-library/<category>/INDEX.md`
-          Pick skills per role using `(N lines)` from INDEX to track budget:
-          - dev_skills: implementation skills (may be 1-3 from different categories)
-          - bug_reviewer_skills: correctness/quality review skills
-          - security_reviewer_skills: security review skills
-          - compliance_reviewer_skills: project rules/convention skills
-          - qa_skills: testing skills
-          Sum lines per role. Drop lowest-priority skill if >1500.
-       3. Tell user:
-          ```
-          Skills for {id}:
-            dev: backend/api-dev (220), backend/software-security (180) = 400 lines
-            bug_reviewer: review-qa/code-review-expert (155) = 155 lines
-            security_reviewer: review-qa/code-review-expert (155) = 155 lines
-            compliance_reviewer: none
-            qa: review-qa/webapp-testing (95) = 95 lines
-          ```
-          (use "none" if no match for a role)
-       4. Pass skill paths to each agent in their task message/prompt:
-          "Skills: read these SKILL.md files and follow them:
-           1. ~/.claude/skill-library/<category>/<skill>/SKILL.md (N lines)
-           2. ~/.claude/skill-library/<category>/<skill>/SKILL.md (N lines)"
+       Goal: give each agent the skills that will help them do their job on THIS task.
+       Safety cap: ≤2500 lines per role. Most skills are 100-500 lines, so this is plenty.
+       The INDEX.md also states a limit — use 2500 per role as stated HERE, it takes precedence.
+
+       **Step 1 — Find candidate skills:**
+       Read `~/.claude/skill-library/INDEX.md` — use Category Router to pick ALL relevant categories.
+       ALWAYS also check review-qa/ — reviewers and QA may need skills from there regardless of the task's category.
+       For each category: read `~/.claude/skill-library/<category>/INDEX.md`.
+       Each skill entry has a description with "Use when..." and "Not for..." guidance in its text. Use these to decide relevance to this task and the project's technologies (known from CLAUDE.md/AGENTS.md and the codebase).
+
+       **Step 2 — Assign candidates to roles:**
+
+       **Dev** — implementation-focused domain skills matching the task's technologies. If the description's "Use when..." matches what dev will be building — include it. Dev benefits most from deep domain skills.
+
+       **Bug Reviewer** — two types of skills:
+       - *Domain skills* that define correctness rules, patterns, and anti-patterns (e.g. "React performance rules" to catch anti-patterns in a React diff). From any matched category (frontend/, backend/, etc.). NOT setup guides (e.g. "how to set up Docker from scratch") — reviewer needs to know what's CORRECT, not how to build from scratch.
+       - *Review methodology skills* (typically from review-qa/) that provide checklists and quality dimensions. Prefer skills that are pure reference (checklists, dimensions, anti-pattern catalogs) over skills that define their own full workflow/output format. Reviewer prompts have OVERRIDE RULE that handles format conflicts, but a reference-style skill causes less noise than a workflow-style skill. Example: if review-qa/ has both a methodology+workflow skill and a pure-checklist skill — prefer the pure-checklist one.
+       Do NOT give security skills — bug reviewer's scope is correctness/logic, not security.
+
+       **Security Reviewer** — security skills from any category that match the task's attack surface: auth/input validation → appsec, cloud infra → cloud security, LLM → AI security. Reviewer prompts have an OVERRIDE RULE so format conflicts are safe — reviewer will use the skill's domain knowledge but ignore any conflicting output format.
+
+       **Compliance Reviewer** — check if any skill covers compliance rules relevant to the changed code: payment processing → PCI compliance, accessibility features → WCAG audit, secrets handling → vault management, dependency changes → dependency auditor. For most tasks compliance reviewer works from CLAUDE.md/AGENTS.md and "none" is correct — but don't auto-skip without checking.
+
+       **QA** — testing skills that match the interface being tested (typically from review-qa/). Web UI → browser testing skill (cmux commands). Telegram → no skill needed (MCP is self-documenting). API/CLI → usually no testing skill needed (QA tests via curl/bash). QA does NOT write code, so don't give test generation skills (those go to dev). Also give domain skills from any matched category that help QA understand what CORRECT behavior looks like — if QA doesn't know the domain, they can only verify surface-level criteria.
+
+       **Rules:**
+       - The question is: "Will this agent produce BETTER work with this skill?" If yes → include.
+       - If 4 skills match a role → give 4. If 1 matches → give 1. If none match → "none".
+       - Simple tasks (config change, small bugfix) may need no skills at all — that's OK.
+       - Each skill description has "Not for..." — if it matches, exclude.
+
+       **Examples:**
+
+       Backend task "Add rate limiting to /api/auth endpoints" (project uses Express + Supabase):
+       ```
+       Skills for auth-ratelimit.1:
+         dev: backend/software-security-appsec (347), backend/supabase-postgres-best-practices (64) → 411 lines
+         bug_reviewer: review-qa/code-quality-review (301), backend/supabase-postgres-best-practices (64) → 365 lines
+         security_reviewer: backend/software-security-appsec (347) → 347 lines
+         compliance_reviewer: none (would get backend/pci-compliance if this were a payment endpoint)
+         qa: none (API-only task — QA tests via curl, no browser skill needed)
+       ```
+       Why included: dev gets appsec (auth patterns, input validation) + db skill (query optimization, connection pooling for rate limit storage). Bug reviewer gets quality methodology (6 review dimensions, anti-pattern catalog — chosen over code-review-expert because it's pure-reference without its own workflow/output format) + db skill (to catch Postgres anti-patterns like missing indexes). Security reviewer gets appsec (OWASP, auth bypass risks). QA has no web UI — API rate limiting is tested via curl.
+       Why excluded: bug reviewer does NOT get appsec (security is not bug reviewer's scope). Bug reviewer gets code-quality-review, NOT code-review-expert (code-review-expert defines its own P0-P3 severity and full workflow which conflicts with reviewer's prompt — code-quality-review is pure checklists). QA does NOT get api-test-suite-builder (QA doesn't write code — that skill would go to dev if TDD is needed).
+
+       Frontend task "Build settings page with form validation" (project uses React + Tailwind):
+       ```
+       Skills for settings-ui.3:
+         dev: frontend/vercel-react-best-practices (136), frontend/tailwind-design-system (874) → 1010 lines
+         bug_reviewer: frontend/vercel-react-best-practices (136) → 136 lines
+         security_reviewer: none (React auto-escapes XSS, settings form has no direct security surface)
+         compliance_reviewer: none
+         qa: review-qa/webapp-testing (54), frontend/vercel-react-best-practices (136) → 190 lines
+       ```
+       Why: dev gets React rules + Tailwind system. Bug reviewer gets React rules (anti-patterns to catch in diff). Security reviewer gets none — React auto-escapes XSS, and a settings form with client-side validation has minimal attack surface (if the form submitted sensitive data to a custom API endpoint, appsec would be relevant). QA gets browser testing commands (cmux) + React rules (to understand what correct form behavior looks like).
+
+       **Step 3 — Report to user:**
+       ```
+       Skills for {id}:
+         dev: category/skill (N lines), category/skill (N lines) → total lines
+         ...
+       ```
+
+       **Step 4 — Pass to agents** in their task message/prompt:
+       "Skills: read these SKILL.md files before starting work:
+        1. ~/.claude/skill-library/<category>/<skill>/SKILL.md
+        2. ~/.claude/skill-library/<category>/<skill>/SKILL.md"
+       (Each agent's own Skills section in their prompt defines HOW to use skills — dev follows them fully, reviewers extract domain knowledge only.)
 
   3.6. PHASE CHECK:
        new_phase = task ID up to last dot (e.g., fv4.2 → fv4, fv5.1 → fv5)
@@ -269,7 +313,9 @@ LOOP:
        7a. MERGE: Combine issues from all three reviewers. Deduplicate (same file:line AND same root cause = one issue; keep both if they describe different problems, e.g., a logic bug vs. a security vulnerability at the same line).
 
        7b. VALIDATE CRITICAL/MAJOR (per-issue sonnet subagents):
-           For each [CRITICAL] or [MAJOR] issue, spawn a validation subagent:
+           If zero [CRITICAL] and zero [MAJOR] issues after merge → skip step 7b entirely, go to 7c.
+           Otherwise, for each [CRITICAL] or [MAJOR] issue, spawn a validation subagent.
+           Lead MUST replace `{lead_name}` and `{validator_name}` with actual teammate names in the prompt:
            ```
            Task(
              subagent_type="general-purpose",
@@ -277,15 +323,35 @@ LOOP:
              name="validator-{N}",
              model="sonnet",
              mode="bypassPermissions",
-             prompt="You are an issue validator. Confirm or reject this finding.
+             prompt="You are '{validator_name}' in a bishx-run team. Issue validator.
+
+                     ## Team
+                     - Lead ({lead_name}) — orchestrator. Send your result to Lead ONLY.
+                     Communication: SendMessage(type='message', recipient='{lead_name}', content='...', summary='...')
+
+                     Lead MUST fill {validator_name} and {lead_name} with actual teammate names when spawning.
+
+                     ## Task
+                     Confirm or reject this finding.
                      Task context: {review brief}
                      Issue ID: {issue_id}
                      Issue: {issue description with file:line}
-                     Read the file at the specified location.
-                     Answer ONLY:
+
+                     ## Workflow
+                     1. Read the file at the specified location.
+                     2. Decide: CONFIRMED or REJECTED.
+                     3. Send result to Lead via SendMessage:
+                        SendMessage(type='message', recipient='{lead_name}', content='CONFIRMED {issue_id} — {reason}' or 'REJECTED {issue_id} — {reason}', summary='validator result for {issue_id}')
+                     4. Done.
+
+                     Answer format (EXACTLY one of):
                        CONFIRMED {issue_id} — {why this is a real issue}
-                       or REJECTED {issue_id} — {specific reason the reviewer is wrong,
-                       e.g. 'variable defined on line 12', 'framework sanitizes automatically'}"
+                       or REJECTED {issue_id} — {specific reason the reviewer is wrong, e.g. 'variable defined on line 12', 'framework sanitizes automatically'}
+
+                     ## Rules
+                     1. Do NOT go idle without sending the result via SendMessage.
+                     2. Your ONLY job is: read file → decide → SendMessage → done.
+                     3. On shutdown_request → approve."
            )
            ```
            Spawn ALL validators in parallel (they are independent).
@@ -298,28 +364,70 @@ LOOP:
            [MINOR] and [INFO] skip validation — pass through as-is.
 
        7c. DECIDE:
-           If zero [CRITICAL] + zero [MAJOR] after validation AND Bug Reviewer reported automated checks passing → "Review passed".
-             Send "Review passed" to dev (for awareness). Go to step 8.
-           If zero [CRITICAL] + zero [MAJOR] BUT automated checks failed → send test/lint/typecheck failure details to dev as a blocking issue. Go to step 7d (wait for dev fix). This counts as a review round.
-           If any [CRITICAL] or [MAJOR] survived validation → send merged+validated list to dev (preserve issue IDs from reviewers):
-             "Review found issues. Fix these:
-              [CRITICAL] BUG-001 file:line — description — recommendation
-              [MAJOR] SEC-001 file:line — description — recommendation
-              [MINOR] COMP-001 file:line — description (non-blocking, for awareness)
-              [INFO] BUG-002 file:line — description (non-blocking, for awareness)"
+           CASE A — REVIEW PASSED, NO ISSUES:
+             Zero [CRITICAL] + zero [MAJOR] + zero [MINOR] + zero [INFO] after validation, AND automated checks passing.
+             → Send "Review passed" to dev (for awareness).
+             → Shutdown all three reviewers. Clear state: teammates.bug_reviewer = null, etc.
+             → TaskUpdate → "[{id}] Review code" → completed.
+             → Go to step 8.
 
-       7d. Set waiting_for="dev". WAIT dev → "Fixed: {issue IDs and actions}, files: [...]". Clear waiting_for.
+           CASE B — REVIEW PASSED WITH MINOR/INFO ONLY:
+             Zero [CRITICAL] + zero [MAJOR] after validation, AND automated checks passing, BUT [MINOR] or [INFO] issues exist.
+             → Send to dev: "Review passed. Fix these non-blocking items now, then report back:
+                [MINOR] COMP-001 file:line — description (fix if easy)
+                [INFO] BUG-002 file:line — description (at your discretion)"
+             → Go to step 7d-minor.
+
+           CASE C — AUTOMATED CHECKS FAILED:
+             Zero [CRITICAL] + zero [MAJOR] BUT automated checks failed.
+             → Send test/lint/typecheck failure details to dev as a blocking issue.
+               If [MINOR] or [INFO] issues also exist, include them in the same message:
+               "Automated checks failed: {details}. Also fix these:
+                [MINOR] COMP-001 file:line — description (fix if easy)
+                [INFO] BUG-002 file:line — description (at your discretion)"
+             → Go to step 7d-blocking. This counts as a review round.
+
+           CASE D — CRITICAL/MAJOR FOUND:
+             Any [CRITICAL] or [MAJOR] survived validation.
+             → Send merged+validated list to dev (preserve issue IDs):
+                "Review found issues. Fix these:
+                 [CRITICAL] BUG-001 file:line — description — recommendation
+                 [MAJOR] SEC-001 file:line — description — recommendation
+                 [MINOR] COMP-001 file:line — description (fix now, non-blocking)
+                 [INFO] BUG-002 file:line — description (at your discretion)"
+             → Go to step 7d-blocking. This counts as a review round.
+
+       7d-minor. (MINOR-only fix, no re-review needed):
+           ```bash
+           jq '.waiting_for = "dev"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+           ```
+           WAIT dev → "Fixed: {issue IDs and actions}, files: [...]".
+           ```bash
+           jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+           ```
+           Shutdown all three reviewers. Clear state: teammates.bug_reviewer = null, etc.
+           TaskUpdate → "[{id}] Review code" → completed.
+           Go to step 8.
+
+       7d-blocking. (CRITICAL/MAJOR or automated checks — needs re-review):
+           ```bash
+           jq '.waiting_for = "dev"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+           ```
+           WAIT dev → "Fixed: {issue IDs and actions}, files: [...]".
+           ```bash
+           jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+           ```
+           Go to step 7e.
 
        7e. Increment review_round. If review_round >= 5 → tell user "Review failed after 5 rounds: {remaining issues}. Manual intervention required." `bd update {id} --status open`, go to next task (GOTO main loop step 1).
            Otherwise → Shutdown all three reviewers. Re-compose review brief (step 6a) using dev's latest "Fixed" message and updated file list. Spawn fresh trio (step 6b). Update state: teammates.bug_reviewer, teammates.security_reviewer, teammates.compliance_reviewer with new names. Repeat from step 7 (set waiting_for, wait for new reviewers).
 
      DO NOT commit, push, or close the task before review is passed.
-     Shutdown all reviewers after review completes.
-     TaskUpdate → "[{id}] Review code" → completed.
 
   8. TaskUpdate → "[{id}] Commit & push" → in_progress.
      LEAD COMMITS AND PUSHES (only after review passed):
-     git add <files> && git commit -m "[{id}] <description>" && git push
+     First, get the actual list of changed files: `git status --porcelain` — this captures ALL dev's changes (original implementation + any MINOR fixes).
+     git add <all changed project files from git status> && git commit -m "[{id}] <description>" && git push
      Commit message MUST start with `[{task_id}]` — this is used for orphan task identification on recovery.
      NEVER add .beads/ or .omc/ files — they are gitignored. Only add project source files.
      Do NOT run git pull/rebase before commit — it will fail on unstaged changes.
@@ -357,7 +465,7 @@ LOOP:
         a. Send QA feedback to dev: "QA failed: {issues}. Fix these."
         b. Set waiting_for="dev". WAIT dev → "Done, files: [...]". Clear waiting_for.
         c. Spawn fresh trio of reviewers (bug + security + compliance). Pass review brief + changed files.
-        d. Set waiting_for="reviewers". WAIT all reviewers. Clear waiting_for. Lead merges issues (same as step 7a). If CRITICAL/MAJOR found → spawn validators, set waiting_for="validators", wait, clear waiting_for. Drop REJECTED (same as step 7b-7c).
+        d. Set waiting_for="reviewers". WAIT all reviewers. Clear waiting_for. Lead merges issues (same as step 7a). If CRITICAL/MAJOR found → spawn validators (same as step 7b), set waiting_for="validators", wait, clear waiting_for. Shutdown validators. Drop REJECTED. Then decide: if CRITICAL/MAJOR remain → send back to dev (go to step a), else → proceed to step e. Shutdown reviewers before proceeding.
         e. Commit/push fixes.
         f. Send to QA: "Re-test task {id} after fixes."
         g. Set waiting_for="qa". WAIT QA → passed/failed. Clear waiting_for.
@@ -372,10 +480,10 @@ LOOP:
       jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
       ```
       bd close {id} && bd sync
-      Shutdown reviewers (if still alive):
-        SendMessage(type="shutdown_request", recipient=state.teammates.bug_reviewer)
-        SendMessage(type="shutdown_request", recipient=state.teammates.security_reviewer)
-        SendMessage(type="shutdown_request", recipient=state.teammates.compliance_reviewer)
+      Shutdown reviewers (only if not already shutdown'd in step 7c — check state first):
+        If state.teammates.bug_reviewer is not null → SendMessage(type="shutdown_request", recipient=state.teammates.bug_reviewer)
+        If state.teammates.security_reviewer is not null → SendMessage(type="shutdown_request", recipient=state.teammates.security_reviewer)
+        If state.teammates.compliance_reviewer is not null → SendMessage(type="shutdown_request", recipient=state.teammates.compliance_reviewer)
       Clear state: teammates.bug_reviewer = null, teammates.security_reviewer = null, teammates.compliance_reviewer = null. Do NOT touch dev, qa (or operator, if spawned).
       TaskUpdate → "[{id}] Close in bd" → completed.
 
@@ -434,7 +542,7 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
 
   3. DETERMINE VERSION BUMP:
      If `first_release=true` → skip this step. New version is `v0.1.0`.
-     Otherwise, spawn sonnet agent:
+     Otherwise, spawn sonnet agent (Lead MUST replace `{lead_name}` with actual name):
      Update state: `jq '.waiting_for = "version-analyst"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json`
      ```
      Task(
@@ -459,6 +567,8 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
 
        Current version: {prev_tag}
 
+       You MUST send your result to Lead via SendMessage:
+         SendMessage(type='message', recipient='{lead_name}', content='MINOR' or 'MAJOR', summary='version bump decision')
        Respond with EXACTLY one word: MINOR or MAJOR"
      )
      ```
@@ -468,7 +578,7 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
      `{new_version}` is ALWAYS bare (e.g., "1.3.0"). Use `v{new_version}` for git tags and release titles. Use `{new_version}` (= `{new_version_bare}`) for file contents.
      All Phase 11.5 agents (version-analyst, version-bumper, release-writer) are short-lived fire-and-forget. They do NOT need tracking in state.teammates.
 
-  4. UPDATE VERSION IN CODEBASE — spawn version-bumper:
+  4. UPDATE VERSION IN CODEBASE — spawn version-bumper (Lead MUST replace `{lead_name}` with actual name):
      IMPORTANT: Strip the `v` prefix for file versions. Tags use `v1.2.0`, but files store `1.2.0`.
      `old_version` = prev_tag without `v` (e.g., `v1.2.0` → `1.2.0`). If first_release → skip this step (no old version to find).
      `new_version_bare` = new version without `v` (e.g., `v1.3.0` → `1.3.0`).
@@ -498,8 +608,10 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
        4. Do NOT update dependency versions that happen to match.
        5. After updating, verify nothing was missed:
           grep -r '{old_version}' --include='*.json' --include='*.toml' --include='*.py' --include='*.ts' --include='*.js' --include='*.yaml' --include='*.yml' --include='*.cfg' --include='*.ini' --include='*.html' --include='*.swift' --include='*.kt' --include='*.gradle' --include='*.plist' --include='*.xml' --include='*.properties' --include='*.rb' --include='*.go' --include='*.rs' . | grep -v node_modules | grep -v '/\.git/' | grep -v '/\.beads/' | grep -v '/\.omc/'
-       6. If no files found → report: 'No version strings found in codebase, nothing to update.'
-       7. If files updated → report: 'Done, files: [list of changed files]'"
+       6. If no files found → send to Lead: 'No version strings found in codebase, nothing to update.'
+       7. If files updated → send to Lead: 'Done, files: [list of changed files]'
+       You MUST send your result to Lead via SendMessage:
+         SendMessage(type='message', recipient='{lead_name}', content='<your result>', summary='version bump files')"
      )
      ```
      WAIT for version-bumper to complete. Clear waiting_for:
@@ -524,7 +636,7 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
      Best practice formatting ALWAYS takes priority over mimicking bad previous style.
      If no previous releases exist → default to English.
 
-  7. GENERATE RELEASE NOTES — spawn opus agent:
+  7. GENERATE RELEASE NOTES — spawn opus agent (Lead MUST replace `{lead_name}` with actual name):
      Update state: `jq '.waiting_for = "release-writer"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json`
      ```
      Task(
@@ -576,6 +688,8 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
        5. NEVER include 'Generated with Claude Code' or any bot attribution.
        6. Tone: professional, concise, informative.
 
+       You MUST send your result to Lead via SendMessage:
+         SendMessage(type='message', recipient='{lead_name}', content='<release notes body>', summary='release notes for v{new_version}')
        Return ONLY the release notes body (no fences, no extra commentary)."
      )
      ```
@@ -594,19 +708,48 @@ PHASE 11.5: RELEASE (triggered when epic exhausted — no more tasks for state.e
 
   9. Tell user: "Epic completed. Released v{new_version}: {github release URL}"
 
-  10. Go to SHUTDOWN.
+  10. Go to SHUTDOWN. DO NOT SKIP SHUTDOWN — it is MANDATORY after release.
 
 SHUTDOWN (when epic released OR user says "stop" / "wrap up" / "enough"):
-  1. Do NOT assign new tasks
-  2. Read state.teammates to get actual names.
-  3. If dev alive → SendMessage(type="shutdown_request", recipient=state.teammates.dev)
-  4. If qa alive → SendMessage(type="shutdown_request", recipient=state.teammates.qa)
-  5. Set waiting_for="shutdown". WAIT for active teammates to finish current work (if any). Clear waiting_for.
-  6. Lead commits, pushes, closes in bd (if uncommitted work exists)
-  7. git status --porcelain → clean
-  8. Shutdown any remaining alive teammates NOT already shut down in steps 3-4 (reviewers from state.teammates if not null, any others). If operator exists (check state.teammates.operator) → shut down operator LAST.
-  9. TeamDelete
-  10. <bishx-complete>
+  SHUTDOWN IS MANDATORY. You MUST execute ALL steps below. Skipping any step is a bug.
+  1. Do NOT assign new tasks.
+  2. Read state.teammates to get actual names of ALL alive teammates. Read state.current_task.
+  3. If triggered by "stop" (not release) AND state.current_task is set AND `bd show {state.current_task}` shows status=in_progress AND dev is alive (state.teammates.dev not null) AND `git status --porcelain` shows uncommitted changes:
+     a. SendMessage(type="message", recipient=state.teammates.dev, content="Wrap up current work and report file list.", summary="shutdown: wrap up")
+     b. Update waiting_for:
+        ```bash
+        jq '.waiting_for = "dev"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+        ```
+     c. WAIT for dev response. Clear waiting_for:
+        ```bash
+        jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+        ```
+     d. Lead commits and pushes dev's work: git add <files from dev report> && git commit -m "[{state.current_task}] WIP: partial implementation" && git push
+     e. bd update {state.current_task} --status open (so it's picked up next session).
+  4. Shutdown ALL alive teammates — send shutdown_request to EVERY non-null entry in state.teammates:
+     - If dev alive → SendMessage(type="shutdown_request", recipient=state.teammates.dev)
+     - If qa alive → SendMessage(type="shutdown_request", recipient=state.teammates.qa)
+     - If bug_reviewer alive → SendMessage(type="shutdown_request", recipient=state.teammates.bug_reviewer)
+     - If security_reviewer alive → SendMessage(type="shutdown_request", recipient=state.teammates.security_reviewer)
+     - If compliance_reviewer alive → SendMessage(type="shutdown_request", recipient=state.teammates.compliance_reviewer)
+     - If operator alive → shut down LAST: SendMessage(type="shutdown_request", recipient=state.teammates.operator)
+  5. If any shutdown_requests were sent in step 4:
+     Set waiting_for:
+     ```bash
+     jq '.waiting_for = "shutdown"' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
+     WAIT for all shutdown confirmations. Clear waiting_for:
+     ```bash
+     jq '.waiting_for = ""' .omc/state/bishx-run-state.json > .omc/state/bishx-run-state.json.tmp && mv .omc/state/bishx-run-state.json.tmp .omc/state/bishx-run-state.json
+     ```
+     If no shutdown_requests were sent (no alive teammates) → skip this step.
+  6. git status --porcelain → must be clean. If dirty → investigate and resolve.
+  7. TeamDelete(team_name="bishx-run-{project}") — MUST delete the team. Do NOT skip.
+  8. <bishx-complete>
+  9. Clean up state files (AFTER bishx-complete, so recovery works if crash before step 8):
+     ```bash
+     rm -f .omc/state/bishx-run-state.json .omc/state/bishx-run-context.md
+     ```
 ```
 
 ## Spawn Prompts
@@ -697,7 +840,8 @@ If provided → read each SKILL.md and follow them. If not provided → proceed 
    - [INFO] → at your discretion
 7. After fixes → reply to Lead: "Fixed: BUG-001 (did X), SEC-001 (did Y), files: [list]" — reference issue IDs.
 8. Lead re-runs reviewers. Repeat until review passes (max 5 rounds).
-   When Lead says "Review passed" → idle. Lead will commit/push and run QA.
+   When Lead says "Review passed" with NO issues listed → idle. Lead will commit/push and run QA.
+   When Lead says "Review passed" WITH non-blocking items → fix them, report back using the same format: "Fixed: COMP-001 (did X), BUG-002 (skipped, cosmetic), files: [list]", then idle.
    You may receive QA feedback from Lead later — fix and go through review again.
    Do NOT worry about being idle — it's normal during commit/QA phase.
 
@@ -742,7 +886,8 @@ NOT your scope (do not flag these):
 
 ## Skills
 Lead may include skill paths in your prompt.
-If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
+If provided → read each SKILL.md for domain knowledge, checklists, and patterns. If not provided → proceed without skills.
+OVERRIDE RULE: Your prompt's severity system (CRITICAL/MAJOR/MINOR/INFO with BUG-NNN IDs), output format, and workflow ALWAYS take precedence over anything in skills. If a skill defines its own severity levels, output template, or workflow — ignore those parts, use only its domain knowledge and checklists.
 
 ## Task
 {bd show task_id — task description}
@@ -849,7 +994,8 @@ NOT your scope (do not flag these):
 
 ## Skills
 Lead may include skill paths in your prompt.
-If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
+If provided → read each SKILL.md for domain knowledge, checklists, and patterns. If not provided → proceed without skills.
+OVERRIDE RULE: Your prompt's severity system (CRITICAL/MAJOR/MINOR/INFO with SEC-NNN IDs), output format, and workflow ALWAYS take precedence over anything in skills. If a skill defines its own severity levels, output template, or workflow — ignore those parts, use only its domain knowledge and checklists.
 
 ## Task
 {bd show task_id — task description}
@@ -946,7 +1092,8 @@ NOT your scope (do not flag these):
 
 ## Skills
 Lead may include skill paths in your prompt.
-If provided → read each SKILL.md and follow them. If not provided → proceed without skills.
+If provided → read each SKILL.md for domain knowledge, checklists, and compliance rules. If not provided → proceed without skills.
+OVERRIDE RULE: Your prompt's severity system (CRITICAL/MAJOR/MINOR/INFO with COMP-NNN IDs), output format, and workflow ALWAYS take precedence over anything in skills. Use skills for compliance domain knowledge only.
 
 ## Task
 {bd show task_id — task description}
@@ -1042,7 +1189,7 @@ Read this to understand the full feature you're testing — user stories give yo
 4. Run smoke tests — nothing broken?
 5. Check edge cases: empty data, invalid input, boundary values
 6. REGRESSION CHECK: If this is NOT the first task in this phase (Lead provides list of previous tasks), smoke-test their key functionality. Verify nothing is broken by the current changes. Report regressions with severity matching their actual impact (P1-P4).
-7. **CLOSE BROWSER IMMEDIATELY** after finishing all checks for this task. Run `cmux close-surface --surface $S` right now. Do NOT proceed to step 8 with browser still open.
+7. **CLOSE BROWSER NOW — before anything else.** If you opened a cmux browser (web interface testing), run `cmux close-surface --surface $S` IMMEDIATELY after finishing checks for THIS task. Do NOT write the report first. Do NOT wait for Lead. Close the browser THE MOMENT you finish testing. This is a hard rule — any report sent with a browser still open is a violation. (Skip this step if no browser was opened — e.g., API/CLI/Telegram testing.)
 8. If bug — describe to Lead:
    - Severity: P1 (blocker/crash), P2 (major UX), P3 (minor), P4 (cosmetic)
    - What: problem description
@@ -1056,7 +1203,7 @@ Read this to understand the full feature you're testing — user stories give yo
    - [ ] Regression check done? (previous tasks in this phase still work?)
    - [ ] Real behavior verified? (not just code, actual app behavior)
    - [ ] All found bugs described with severity, steps, expected vs actual?
-   - [ ] Browser closed? (if not → `cmux close-surface --surface $S` NOW)
+   - [ ] Browser closed? (If cmux was used: MUST be closed BEFORE sending result — if not → `cmux close-surface --surface $S` NOW, before step 10)
 10. Result → Lead: "QA passed for task {id}" OR "QA failed: {issues}"
 
 ## cmux browser reference
@@ -1072,7 +1219,7 @@ For running tools: .venv/bin/pytest, .venv/bin/ruff, etc.
 1. You do NOT write code. Read-only + run tests/commands + interact via cmux browser / MCP.
 2. Verify real behavior, not just code.
 3. Explore the app yourself — don't rely on hardcoded page/command lists.
-4. **Close browser immediately after testing** — run `cmux close-surface --surface $S` as soon as you finish checking the page. Never leave it open while writing the report or waiting for Lead.
+4. **Close browser IMMEDIATELY after testing** — if you opened a cmux browser, run `cmux close-surface --surface $S` right after finishing ALL testing steps (steps 1-6), BEFORE writing bug descriptions (step 8) or sending results (step 10). This is the #1 QA rule — never leave a browser open while writing reports or waiting. (Does not apply if no browser was opened.)
 5. On shutdown_request → approve.
 ```
 
