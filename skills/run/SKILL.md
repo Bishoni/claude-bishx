@@ -184,8 +184,8 @@ LOOP:
 
   3.5. SKILL LOOKUP (Lead does this ONCE per task, agents do NOT search themselves):
        Goal: give each agent the skills that will help them do their job on THIS task.
-       Safety cap: ≤2500 lines per role. Most skills are 100-500 lines, so this is plenty.
-       The INDEX.md also states a limit — use 2500 per role as stated HERE, it takes precedence.
+       Safety cap: ≤2500 lines per INDIVIDUAL agent (dev gets up to 2500, bug reviewer gets up to 2500, security reviewer gets up to 2500, QA gets up to 2500 — independently, NOT shared across roles).
+       The INDEX.md also states a limit — use 2500 per agent as stated HERE, it takes precedence.
 
        **Step 1 — Find candidate skills:**
        Read `~/.claude/skill-library/INDEX.md` — use Category Router to pick ALL relevant categories.
