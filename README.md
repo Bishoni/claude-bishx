@@ -27,8 +27,6 @@ Type `/bishx:` to verify commands appear in autocomplete.
 
 ## Commands
 
-### Core Pipeline
-
 | Command | Description |
 |---------|-------------|
 | `/bishx:prompt <idea>` | Generate a structured planning prompt from a raw idea |
@@ -38,22 +36,10 @@ Type `/bishx:` to verify commands appear in autocomplete.
 | `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs all test types, reports bugs to bd |
 | `/bishx:site <url>` | Full website audit — crawls up to 100 pages via cmux browser, analyzes UX/UI, SEO, accessibility, performance, conversion |
-
-### Project Setup
-
-| Command | Description |
-|---------|-------------|
 | `/bishx:init` | Create CLAUDE.md and AGENTS.md templates in the project root |
 | `/bishx:init-sync` | Scan codebase and fill/update CLAUDE.md and AGENTS.md with real project data |
 
-### Utilities
-
-| Command | Description |
-|---------|-------------|
-| `/bishx:status` | Show current bishx-run session status |
-| `/bishx:cancel` | Stop the active bishx-run or bishx-site session gracefully |
-| `/bishx:polish` | Analyze the project and suggest optimizations, refactors, and technical improvements |
-| `/bishx:idea` | Analyze the project and suggest new features worth building |
+> `/bishx:status`, `/bishx:cancel`, `/bishx:polish`, `/bishx:idea` are defined but **not yet functional**.
 
 ## Architecture
 
