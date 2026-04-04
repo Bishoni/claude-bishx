@@ -27,14 +27,33 @@ Type `/bishx:` to verify commands appear in autocomplete.
 
 ## Commands
 
+### Core Pipeline
+
 | Command | Description |
 |---------|-------------|
+| `/bishx:prompt <idea>` | Generate a structured planning prompt from a raw idea |
 | `/bishx:plan <prompt>` | Run 10-actor verification pipeline (up to 10 iterations) to produce a bulletproof implementation plan |
 | `/bishx:plan-to-bd-tasks` | Decompose the approved plan into bd tasks (Epic → Feature → Task hierarchy) |
 | `/bishx:run` | Execute tasks with multi-agent orchestration (Lead → Dev → 3 Reviewers → QA) |
 | `/bishx:run <epic>` | Select a specific epic by name (partial match, e.g. `/bishx:run auth`) |
 | `/bishx:test` | Deep system testing: auto-detects stack, discovers components, runs all test types, reports bugs to bd |
 | `/bishx:site <url>` | Full website audit — crawls up to 100 pages via cmux browser, analyzes UX/UI, SEO, accessibility, performance, conversion |
+
+### Project Setup
+
+| Command | Description |
+|---------|-------------|
+| `/bishx:init` | Create CLAUDE.md and AGENTS.md templates in the project root |
+| `/bishx:init-sync` | Scan codebase and fill/update CLAUDE.md and AGENTS.md with real project data |
+
+### Utilities
+
+| Command | Description |
+|---------|-------------|
+| `/bishx:status` | Show current bishx-run session status |
+| `/bishx:cancel` | Stop the active bishx-run or bishx-site session gracefully |
+| `/bishx:polish` | Analyze the project and suggest optimizations, refactors, and technical improvements |
+| `/bishx:idea` | Analyze the project and suggest new features worth building |
 
 ## Architecture
 
@@ -53,6 +72,15 @@ Interview → Research → Planner →  ├─ Completeness (sonnet)  → Critic
 ```
 
 Iterates up to 10 times until the Critic scores ≥75% with zero blocking issues (APPROVED) and the Dry-Run Simulator passes. Complexity gate adapts the pipeline: TRIVIAL skips review, SMALL runs lite review, MEDIUM+ runs full parallel review. Each session is stored in a timestamped directory (`.bishx-plan/YYYY-MM-DD_HH-MM/`) with all iterations preserved for history. The approved plan is saved as `APPROVED_PLAN.md` inside the session directory.
+
+#### Skill-library integration
+
+After research completes, the orchestrator performs a skill-library lookup from `~/.claude/skill-library/`:
+
+1. Reads `INDEX.md` hierarchy to identify relevant categories by tech stack
+2. Selects skills per-role: implementation patterns for Planner, verification rules for Skeptic
+3. Writes `PLANNER-SKILLS.md` and `SKEPTIC-SKILLS.md` with full skill paths
+4. Agents read FULL SKILL.md files themselves (no truncation, ≤2500 lines budget per agent)
 
 ### Execution pipeline
 
@@ -74,7 +102,7 @@ Each reviewer has formal severity definitions (CRITICAL/MAJOR/MINOR/INFO), HIGH 
 
 Review approach inspired by the [Anthropic code-review plugin](https://github.com/anthropics/claude-code/tree/main/plugins/code-review).
 
-Lead performs centralized skill lookup from the skill library before each task, passing relevant skill paths to each agent (≤1500 lines budget per agent).
+Lead performs centralized skill lookup from the skill library before each task, passing relevant skill paths to each agent (≤2500 lines budget per agent).
 
 All teammates (Dev, Reviewers, QA) reason and communicate in English for better analytical quality. Lead communicates with the user in the user's language.
 
@@ -113,7 +141,7 @@ Run modes:
 
 ```
 bishx/
-├── .claude-plugin/plugin.json    # Plugin manifest
+├── .claude-plugin/plugin.json    # Plugin manifest (v2.12.0)
 ├── README.md
 ├── agents/                       # Agent role definitions (planning pipeline)
 │   ├── completeness-validator.md # Requirements traceability checker
@@ -127,17 +155,26 @@ bishx/
 │   ├── skeptic.md                # Mirage detector — presence + absence mirages
 │   └── tdd-reviewer.md           # TDD compliance with quantitative metrics
 ├── commands/                     # Slash command definitions
+│   ├── cancel.md
+│   ├── idea.md
+│   ├── init.md
+│   ├── init-sync.md
 │   ├── plan.md
 │   ├── plan-to-bd-tasks.md
+│   ├── polish.md
+│   ├── prompt.md
 │   ├── run.md
 │   ├── site.md
+│   ├── status.md
 │   └── test.md
 ├── hooks/                        # Stop hooks for session persistence
-│   ├── discover-skills.sh        # Auto-detect relevant skills for planning
+│   ├── discover-skills.sh        # Auto-detect relevant skills for research
 │   ├── hooks.json
 │   └── stop-hook.sh              # Keeps plan/run sessions alive
 └── skills/                       # Detailed skill instructions
+    ├── init-sync/SKILL.md
     ├── plan/SKILL.md
+    ├── prompt/SKILL.md
     ├── run/SKILL.md
     ├── site/
     │   ├── SKILL.md              # Full audit framework
