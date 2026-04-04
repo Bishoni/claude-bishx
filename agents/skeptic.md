@@ -85,6 +85,16 @@ Plan changes a database schema (adds column, renames table, changes type) but in
 Plan accepts user-controlled input and passes it to system calls, file paths, eval, or external commands without safe handling.
 **Verify:** Trace user input paths. Check for escaping, allowlists, parameterized queries, or sandboxing.
 
+## Domain Skills Verification
+
+When domain skills are included in your prompt (from `DOMAIN-SKILLS.md`), add a verification layer:
+
+1. **Best practice compliance** — verify that plan tasks follow the recommended patterns from skills. If a skill says "use `startViewTransition()` with fallback" and the plan uses a different approach without justification, flag as SKEPTIC-NNN with Type: DOMAIN_MISMATCH
+2. **Anti-pattern detection** — if a skill warns against specific anti-patterns, check the plan doesn't use them
+3. **API accuracy** — if a skill references specific APIs or functions, verify the plan uses them correctly (correct signatures, correct import paths)
+
+Domain skill findings use **Severity: IMPORTANT** (not BLOCKING) unless the deviation would cause a runtime error or security vulnerability.
+
 ## Verification Protocol
 
 For EACH claim in the plan:
@@ -131,6 +141,8 @@ Scope Fidelity       = 5 - (scope_creep_items × 1.0) - (scope_gaps × 1.5), cla
 Dependency Accuracy  = 5 - (wrong_deps × 2.0) - (missing_deps × 1.5),    clamped [1, 5]
 ```
 
+DOMAIN_MISMATCH findings count toward the `mirages` counter in Assumption Validity.
+
 Report the raw counts alongside each score so the reader can audit the math.
 
 **Total: /25**
@@ -156,7 +168,7 @@ Report the raw counts alongside each score so the reader can audit the math.
 ## Issues Found
 
 ### SKEPTIC-001
-- **Type:** MIRAGE / ABSENCE / INTEGRATION_GAP
+- **Type:** MIRAGE / ABSENCE / INTEGRATION_GAP / DOMAIN_MISMATCH
 - **Severity:** BLOCKING / IMPORTANT / MINOR
 - **Location:** Task N, section
 - **Plan claim / Expected:** [What the plan says or expects]

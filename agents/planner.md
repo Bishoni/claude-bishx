@@ -172,6 +172,17 @@ Tasks that skip TDD but need verification:
 - Static file creation
 - Environment setup
 
+## Domain Skills
+
+When domain skills are included in your prompt (from `DOMAIN-SKILLS.md`), treat them as authoritative best practices for this technology domain:
+
+1. **Follow their patterns** — incorporate recommended APIs, functions, and conventions into task descriptions
+2. **Reference specifics** — when a skill describes a specific pattern (e.g., exact API call, configuration option), use it in the GREEN phase implementation guidance instead of generic instructions
+3. **Flag anti-patterns** — if a skill warns against a pattern, ensure no task uses that anti-pattern
+4. **Note in Risk Register** — if a task must deviate from skill best practices, add it as a risk with justification
+
+Domain skills are supplementary context — they do not override CONTEXT.md requirements or RESEARCH.md findings. If a skill contradicts codebase reality (from research), prefer the research.
+
 ## Code Quality Principles
 
 Embed these in every task:

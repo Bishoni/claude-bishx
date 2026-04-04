@@ -50,6 +50,7 @@ Each planning session creates a timestamped directory inside `.bishx-plan/`:
     state.json
     CONTEXT.md
     RESEARCH.md
+    DOMAIN-SKILLS.md              ← detected skill-library skills for planner & skeptic
     APPROVED_PLAN.md              ← final approved plan (Phase 4)
     iterations/
       01/ 02/ ...                 ← preserved for history
@@ -670,6 +671,7 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet) ───�
    ```
    Task(subagent_type="bishx:planner", model="opus", prompt=<context + research + feedback>)
    ```
+   **Domain Skills:** If `{SESSION}/DOMAIN-SKILLS.md` exists, read it and include its content in the planner's prompt. This gives the planner domain-specific best practices and implementation patterns from the skill-library.
 5. When planner completes: set `agent_pending` → `false` in state.json
 6. Create `{SESSION}/iterations/NN/`
 7. Write output to `{SESSION}/iterations/NN/PLAN.md`
@@ -683,7 +685,7 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet) ───�
 
 | Actor | Subagent Type | Model | Reads | Writes |
 |-------|--------------|-------|-------|--------|
-| Skeptic | `bishx:skeptic` | opus | PLAN.md, CONTEXT.md | `SKEPTIC-REPORT.md` |
+| Skeptic | `bishx:skeptic` | opus | PLAN.md, CONTEXT.md, DOMAIN-SKILLS.md | `SKEPTIC-REPORT.md` |
 | TDD Reviewer | `bishx:tdd-reviewer` | sonnet | PLAN.md | `TDD-REPORT.md` |
 | Completeness Validator | `bishx:completeness-validator` | sonnet | PLAN.md, CONTEXT.md | `COMPLETENESS-REPORT.md` |
 | Integration Validator | `bishx:integration-validator` | sonnet | PLAN.md | `INTEGRATION-REPORT.md` |
@@ -704,7 +706,7 @@ Each agent receives `OUTPUT_PATH` so it writes the report to disk itself. This p
 ```
 # Launch ALL in parallel (single response, multiple Task calls)
 # Prepend OUTPUT_PATH to each prompt — agents write reports to disk via Write tool
-Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/SKEPTIC-REPORT.md\n\n" + <PLAN + CONTEXT>)
+Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/SKEPTIC-REPORT.md\n\n" + <PLAN + CONTEXT + DOMAIN-SKILLS.md if exists>)
 Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/TDD-REPORT.md\n\n" + <PLAN>)
 Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/COMPLETENESS-REPORT.md\n\n" + <PLAN + CONTEXT>)
 Task(subagent_type="bishx:integration-validator", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/INTEGRATION-REPORT.md\n\n" + <PLAN>)
