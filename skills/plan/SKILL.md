@@ -136,7 +136,7 @@ When bishx-plan is invoked:
    }
    ```
 
-6. Proceed to Phase 1.
+7. Proceed to Phase 1.
 
 ## Phase 1: Interview (Multi-Round Adaptive Discovery)
 
@@ -285,6 +285,8 @@ Before presenting questions, classify each identified gray area:
 
 Run **up to 8 rounds** (5 structured + up to 3 dynamic follow-ups). Rounds are numbered 0-4 (structured), then N, N+1, N+2 (dynamic gap-filling). Each round has a specific focus and questioning techniques.
 
+**Reminder:** Every question involving a choice or decision MUST include a `★ Recommendation` block (see Recommendation Protocol below). This applies across ALL rounds.
+
 **Round structure:**
 - Round 0: Codebase Briefing (always)
 - Rounds 1-4: Targeted questions (activated by Project Profile)
@@ -296,7 +298,57 @@ Run **up to 8 rounds** (5 structured + up to 3 dynamic follow-ups). Rounds are n
 - Use AskUserQuestion ONLY for structured binary/ternary choices (e.g., "JWT vs sessions?")
 - After EACH round, synthesize what you learned and show it back to the user for confirmation.
 - Track progress: show "Round N/M — X/Y Must-Resolve items closed" after each round.
-- **Escape hatches:** If the user says "just decide" or gives terse answers, offer: "I can proceed with my best assumptions for remaining items. Want me to list my assumptions for approval?"
+- **Escape hatches ("just decide"):**
+  - **Per-question "just decide":** If the user says "just decide" on a SPECIFIC question that has a `★ Recommendation` → apply the recommendation as the decision. Mark as RESOLVED in the Resolution Matrix.
+  - **Per-question "just decide" on a question WITHOUT a recommendation** (informational questions) → skip it and mark as ASSUMED. If it was Must-Resolve, warn the user: "This is a Must-Resolve item — I cannot assume business intent. Can you answer briefly?"
+  - **Blanket "just decide"** (user says it for ALL remaining items) → offer: "I can proceed with my best assumptions for remaining items. Want me to list my assumptions for approval?" For items with `★ Recommendations`, the recommendations become the decisions. For items without, use sensible defaults.
+
+#### Recommendation Protocol
+
+For every question where the user must choose between options or make a technical/architectural decision, include a `★ Recommendation`. Do NOT add recommendations to purely informational questions (business goals, who are the users, what's the motivation — those have no "correct" answer you can recommend).
+
+**Format** (inline, no markdown code fence — plain text with Unicode symbols):
+
+★ Recommendation ─────────────────────────────────
+[Specific choice + specific reason grounded in THIS project's context. 1-3 sentences.]
+─────────────────────────────────────────────────
+
+There are **two patterns** depending on context. Use the right one:
+
+**(A) Questions with a choice** — you ask a question, then give your recommendation:
+> 3. Should we add a separate `notifications` table or extend the existing `events` table with a `type` field?
+>
+> ★ Recommendation ─────────────────────────────────
+> Separate table — `events` already handles 3 entity types (src/models/event.ts:12-45) and notifications have a different lifecycle (created → delivered → read → archived vs append-only). Mixing them means rework when notification volume grows.
+> ─────────────────────────────────────────────────
+
+**(B) Proposals** — the `★ Recommendation` IS the proposal, followed by "approve/adjust?":
+> For file size errors:
+>
+> ★ Recommendation ─────────────────────────────────
+> Show "File is too large. Maximum size: 2 GB." — matches the error style in src/components/Upload.tsx:89.
+> ─────────────────────────────────────────────────
+>
+> Does that work, or would you adjust the wording?
+
+Use **(A)** when asking about architecture, trade-offs, approach choices. Use **(B)** when proposing concrete artifacts: error messages, API shapes, response formats, config values.
+
+**Brevity philosophy:** The recommendation is brief NOT because it was given little thought. It is brief because you have deeply explored the codebase, understood the architecture, and analyzed the trade-offs — and from that depth of understanding you can give a precise answer in 1-3 sentences. The deeper the reasoning, the fewer words needed. If you can express the essence in one precise sentence — do so.
+
+**What "correct" means:**
+- Recommend what is genuinely RIGHT for this project in this context — not what is easiest to implement.
+- The justification MUST be grounded in project-specific facts: existing code, architecture, scale, future plans. Writing "use X because it's a standard" is NOT a justification. Correct: "use X because 3 modules already use X (src/auth, src/api, src/middleware), and consistency matters more here."
+- If the simpler approach IS the correct one — recommend it. But explain WHY simple is right here (the feature is isolated, won't be extended, won't need rework).
+- If a simple approach will inevitably need to be rebuilt later for a feature that clearly matters long-term — say so honestly and recommend doing it properly from the start. Explain the cost of rework.
+- When presenting multiple options, do NOT list them neutrally. Clearly state which one you recommend and why the others are worse in this context.
+
+**Honesty:** Recommend what you genuinely believe is right, even if it's not what the user wants to hear. Do not adjust your recommendation to match the expected answer. If the correct solution is harder or more expensive — say so. The user values an honest opinion, not a convenient one.
+
+**Minimum quality bar:** A recommendation MUST contain: (1) a specific choice and (2) a specific reason from the project's context. "Option B is better" is NOT a recommendation. "Option B, because src/models already uses Prisma and adding a second ORM would create two competing patterns" IS a recommendation.
+
+**The recommendation is NOT auto-applied.** The user reads it and decides — they may agree, adjust, or override entirely. Your job is to give an honest, deeply-reasoned opinion so the user can make an informed decision.
+
+**When the user disagrees:** Accept their decision and record it. You may note a risk ONCE if you believe the decision is genuinely dangerous ("this will break X because Y"), but do not argue or re-pitch. The user has final authority.
 
 #### Round 0: Codebase Briefing (Assumption Surfacing)
 
@@ -312,7 +364,7 @@ Present what you found during exploration:
 > Is this accurate? Anything I'm missing or misunderstanding?"
 
 This saves time — the user corrects rather than explains from scratch.
-The existing code discovery (point 5) is critical — it determines whether the plan is "build from scratch" or "refactor existing".
+The existing code discovery (point 5) is critical — it determines whether the plan is "build from scratch" or "refactor existing". If existing code was found, include a `★ Recommendation` on whether to build from scratch or refactor, grounded in what you observed (code quality, coverage, how far it is from the target).
 
 #### Round 1: Intent & Scope (Why, What, Who)
 
@@ -325,7 +377,7 @@ Focus on Must-Resolve items from dimensions 1-5:
 - What would make this feature a failure? (anti-requirements)
 - Success criteria — how do we know it's done?
 - If we can only deliver 60%, what's most important? (priority calibration)
-- What CANNOT be changed? (frozen constraints)
+- What CANNOT be changed? (frozen constraints) — propose what YOU identified as frozen from the codebase exploration using Pattern (B): list the constraints with justification, then ask "approve/adjust?"
 
 #### Round 2: User Journey & Scenarios (Happy + Failure Paths)
 
@@ -334,23 +386,23 @@ Focus on Must-Resolve items from dimensions 1-5:
 If the project has a UI/UX component:
 - Walk through the happy path together: "User opens the page → clicks [X] → sees [Y] → ... what happens next?"
 - Walk through failure paths: "What if the token expires? What if the API is down? What if there's no data?"
-- **For each error case, propose a user-facing error message** for the user to approve/adjust: "I'd suggest showing 'File is too large. Maximum size: 2 GB' — does that work?"
+- **For each error case, propose a user-facing error message** — use Pattern (B) from Recommendation Protocol.
 - "What worries you most about this feature?" (risk elicitation)
 
 If backend/API only:
 - Walk through the request lifecycle
 - "What happens when [edge case]?"
 - Error scenarios and expected behavior
-- **For API errors, propose HTTP status + response body**: "I'd return 422 with `{error: 'invalid_format', message: '...'}` — OK?"
+- **For API errors, propose HTTP status + response body** — use Pattern (B) from Recommendation Protocol.
 
 #### Round 3: Technical Decisions (How, With What)
 
 **Techniques:** Trade-off Questions, Codebase-Driven Questions
 
-Focus on dimensions activated by Project Profile:
+Focus on dimensions activated by Project Profile. Every decision point in this round MUST include a `★ Recommendation`:
 - Technology choices + trade-offs: "If you had to choose between [speed of development] and [full edge-case coverage], which wins?"
 - Data model decisions
-- Integration specifics — **for new API endpoints, propose request/response shapes**: "I'm thinking `POST /api/v1/upload` returns `{id, status, progress}` — does that match your expectations?"
+- **For new API endpoints, propose request/response shapes** — use Pattern (B) from Recommendation Protocol.
 - Security model (if applicable) — **sub-question if task touches auth**: "Does this feature modify the auth flow, add identity paths, or map users across systems?"
 - **Data volume estimates** (if new tables/files/logs): "How many [records/uploads/events] per day do you expect? 100? 1000? 10000+?"
 - Codebase-Driven: "I found [pattern A] in module X and [pattern B] in module Y — which should I follow?"
@@ -360,7 +412,7 @@ Focus on dimensions activated by Project Profile:
 
 **Techniques:** Stakeholder Probing, Risk Elicitation
 
-Focus on remaining activated dimensions:
+Focus on remaining activated dimensions. Every decision point in this round MUST include a `★ Recommendation`:
 - Performance targets
 - Deploy strategy
 - Observability needs
@@ -381,17 +433,24 @@ If the exit checklist (Step 5) is not fully satisfied after Round 4, run additio
 Before writing CONTEXT.md, build a **Resolution Matrix** tracking every gray area discovered during the interview:
 
 ```
-| # | Gray Area | Dimension | Priority | Status | Resolution |
-|---|-----------|-----------|----------|--------|------------|
-| 1 | DB schema approach | 9: Data model | Must | RESOLVED | Extend existing users table |
-| 2 | Log format | 23: Observability | Nice | ASSUMED | JSON structured logging (team standard) |
-| 3 | Rollback strategy | 22: Deploy | Should | RESOLVED | Feature flag, no migration needed |
+| # | Gray Area | Dimension | Priority | Status | Source | Resolution |
+|---|-----------|-----------|----------|--------|--------|------------|
+| 1 | DB schema approach | 9: Data model | Must | RESOLVED | user | Extend existing users table |
+| 2 | Log format | 23: Observability | Nice | ASSUMED | default | JSON structured logging (team standard) |
+| 3 | Rollback strategy | 22: Deploy | Should | RESOLVED | rec-accepted | Feature flag, no migration needed |
 ```
 
 **Status values:**
-- `RESOLVED` — human gave a clear answer
-- `ASSUMED` — no answer, using sensible default (recorded in Assumptions section of CONTEXT.md)
+- `RESOLVED` — human gave a clear answer, or recommendation was applied via "just decide"
+- `ASSUMED` — no answer, using sensible default (recorded in Assumptions section of CONTEXT.md). For unanswered Should-Resolve items that had a `★ Recommendation`: use the recommendation as the assumption, noting `ASSUMED (from recommendation)`.
 - `OPEN` — still unresolved
+
+**Source values:**
+- `user` — user made the decision (no recommendation, or user's own choice)
+- `rec-accepted` — user accepted the `★ Recommendation`
+- `rec-overridden` — user overrode the `★ Recommendation` with their own choice
+- `just-decide` — recommendation auto-applied because user said "just decide"
+- `default` — sensible default, no user input
 
 **Exit rules:**
 - ALL Must-Resolve items must be `RESOLVED` (not ASSUMED, not OPEN). If any remain OPEN → run another mini-round.
@@ -476,7 +535,7 @@ Architectural decisions with WHY (ADR-style). Include trade-offs here — chose 
 **Filter:** Only decisions that affect architecture, data flow, API design, or have
 real alternatives with trade-offs. NOT: CSS class choices, icon selections,
 single-line implementation details.
-1. **[Decision area]:** [Choice] over [Alternative] — because [rationale]
+1. **[Decision area]:** [Choice] over [Alternative] — because [rationale] [source: rec-accepted / rec-overridden / just-decide / user]
 2. ...
 
 ## Assumptions
