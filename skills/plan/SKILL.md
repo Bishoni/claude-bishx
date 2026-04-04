@@ -50,7 +50,8 @@ Each planning session creates a timestamped directory inside `.bishx-plan/`:
     state.json
     CONTEXT.md
     RESEARCH.md
-    DOMAIN-SKILLS.md              ← detected skill-library skills for planner & skeptic
+    PLANNER-SKILLS.md             ← skill-library paths for planner (curated per-role)
+    SKEPTIC-SKILLS.md             ← skill-library paths for skeptic (curated per-role)
     APPROVED_PLAN.md              ← final approved plan (Phase 4)
     iterations/
       01/ 02/ ...                 ← preserved for history
@@ -636,6 +637,58 @@ The Stop hook injects a prompt telling you to run research. Follow its instructi
 6. Update state.json: `phase` → `"research"`
 7. Emit `<bishx-plan-done>`
 
+## Skill-Library Lookup (between Research and Pipeline)
+
+After Research completes and before the first Planner spawn, perform a skill-library lookup to give Planner and Skeptic domain-specific knowledge from `~/.claude/skill-library/`.
+
+**This step runs ONCE per session** (before iteration 1). The output files (`PLANNER-SKILLS.md`, `SKEPTIC-SKILLS.md`) persist for all subsequent iterations.
+
+### Selection Process
+
+1. Read `~/.claude/skill-library/INDEX.md` — use the Category Router to identify ALL relevant categories based on:
+   - Tech stack from CONTEXT.md Project Profile (languages, frameworks, databases)
+   - Task domain from CONTEXT.md (auth, API, UI, data processing, etc.)
+
+2. For each relevant category, read `~/.claude/skill-library/<category>/INDEX.md` — review each skill's description and "Use when..." triggers.
+
+3. **For Planner** — select skills where "Use when..." matches what the planner needs to design tasks:
+   - Implementation patterns, API usage guides, framework conventions
+   - Best practices for the specific technologies in the task
+   - Architecture patterns relevant to the task's domain
+   - EXCLUDE: review-only checklists, security audit procedures, testing methodology skills
+
+4. **For Skeptic** — select skills useful for verifying plan correctness:
+   - Anti-pattern catalogs, correctness rules, known pitfalls
+   - Domain-specific gotchas and common mistakes
+   - Security patterns (if task involves auth, user input, or API design)
+   - EXCLUDE: step-by-step setup guides, deployment procedures
+
+5. For each selected skill, note the full SKILL.md path and line count (`wc -l` via Bash).
+
+6. **Budget: ≤2500 total lines per agent.** If over budget, drop the least task-relevant skills first.
+
+### Output
+
+Write two files to `{SESSION}/`:
+
+**`PLANNER-SKILLS.md`:**
+```markdown
+# Planner Skills
+Read these FULL SKILL.md files before creating the plan. Budget: ≤2500 lines.
+1. `~/.claude/skill-library/<category>/<skill>/SKILL.md` (N lines) — brief description
+2. ...
+```
+
+**`SKEPTIC-SKILLS.md`:**
+```markdown
+# Skeptic Skills
+Read these FULL SKILL.md files before reviewing the plan. Budget: ≤2500 lines.
+1. `~/.claude/skill-library/<category>/<skill>/SKILL.md` (N lines) — brief description
+2. ...
+```
+
+Skills may overlap between planner and skeptic — that's expected. Agents read skill files themselves (pass paths, not content).
+
 ## Phase 3: Pipeline Loop (triggered by hook per actor)
 
 ### Pipeline Topology
@@ -671,7 +724,7 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet) ───�
    ```
    Task(subagent_type="bishx:planner", model="opus", prompt=<context + research + feedback>)
    ```
-   **Domain Skills:** If `{SESSION}/DOMAIN-SKILLS.md` exists, read it and include its content in the planner's prompt. This gives the planner domain-specific best practices and implementation patterns from the skill-library.
+   **Domain Skills:** If `{SESSION}/PLANNER-SKILLS.md` exists, tell the planner to read the FULL SKILL.md files listed in it before creating the plan. Budget: ≤2500 total lines. Agents read skills themselves — pass paths, not content.
 5. When planner completes: set `agent_pending` → `false` in state.json
 6. Create `{SESSION}/iterations/NN/`
 7. Write output to `{SESSION}/iterations/NN/PLAN.md`
@@ -685,7 +738,7 @@ Planner (opus) ──→ [Parallel:     ├─ Completeness (sonnet) ───�
 
 | Actor | Subagent Type | Model | Reads | Writes |
 |-------|--------------|-------|-------|--------|
-| Skeptic | `bishx:skeptic` | opus | PLAN.md, CONTEXT.md, DOMAIN-SKILLS.md | `SKEPTIC-REPORT.md` |
+| Skeptic | `bishx:skeptic` | opus | PLAN.md, CONTEXT.md, SKEPTIC-SKILLS.md | `SKEPTIC-REPORT.md` |
 | TDD Reviewer | `bishx:tdd-reviewer` | sonnet | PLAN.md | `TDD-REPORT.md` |
 | Completeness Validator | `bishx:completeness-validator` | sonnet | PLAN.md, CONTEXT.md | `COMPLETENESS-REPORT.md` |
 | Integration Validator | `bishx:integration-validator` | sonnet | PLAN.md | `INTEGRATION-REPORT.md` |
@@ -706,7 +759,7 @@ Each agent receives `OUTPUT_PATH` so it writes the report to disk itself. This p
 ```
 # Launch ALL in parallel (single response, multiple Task calls)
 # Prepend OUTPUT_PATH to each prompt — agents write reports to disk via Write tool
-Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/SKEPTIC-REPORT.md\n\n" + <PLAN + CONTEXT + DOMAIN-SKILLS.md if exists>)
+Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/SKEPTIC-REPORT.md\n\n" + <PLAN + CONTEXT> + "Read skill files listed in {SESSION}/SKEPTIC-SKILLS.md if exists")
 Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/TDD-REPORT.md\n\n" + <PLAN>)
 Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/COMPLETENESS-REPORT.md\n\n" + <PLAN + CONTEXT>)
 Task(subagent_type="bishx:integration-validator", model="sonnet", prompt="OUTPUT_PATH: {SESSION}/iterations/NN/INTEGRATION-REPORT.md\n\n" + <PLAN>)

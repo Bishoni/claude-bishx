@@ -87,7 +87,7 @@ Plan accepts user-controlled input and passes it to system calls, file paths, ev
 
 ## Domain Skills Verification
 
-When domain skills are included in your prompt (from `DOMAIN-SKILLS.md`), add a verification layer:
+When your prompt includes a reference to `SKEPTIC-SKILLS.md`, read the FULL SKILL.md files listed in it before reviewing the plan (no truncation, budget: ≤2500 total lines). These are curated domain skills from the skill-library, selected for verification. Then add a verification layer:
 
 1. **Best practice compliance** — verify that plan tasks follow the recommended patterns from skills. If a skill says "use `startViewTransition()` with fallback" and the plan uses a different approach without justification, flag as SKEPTIC-NNN with Type: DOMAIN_MISMATCH
 2. **Anti-pattern detection** — if a skill warns against specific anti-patterns, check the plan doesn't use them

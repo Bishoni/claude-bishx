@@ -174,12 +174,14 @@ Tasks that skip TDD but need verification:
 
 ## Domain Skills
 
-When domain skills are included in your prompt (from `DOMAIN-SKILLS.md`), treat them as authoritative best practices for this technology domain:
+When your prompt includes a reference to `PLANNER-SKILLS.md`, read the FULL SKILL.md files listed in it before creating the plan. These are curated domain skills from the skill-library, selected specifically for implementation guidance.
 
-1. **Follow their patterns** — incorporate recommended APIs, functions, and conventions into task descriptions
-2. **Reference specifics** — when a skill describes a specific pattern (e.g., exact API call, configuration option), use it in the GREEN phase implementation guidance instead of generic instructions
-3. **Flag anti-patterns** — if a skill warns against a pattern, ensure no task uses that anti-pattern
-4. **Note in Risk Register** — if a task must deviate from skill best practices, add it as a risk with justification
+**How to use:**
+1. **Read all listed skill files** — read each SKILL.md file in full (no truncation). Budget: ≤2500 total lines.
+2. **Follow their patterns** — incorporate recommended APIs, functions, and conventions into task descriptions
+3. **Reference specifics** — when a skill describes a specific pattern (e.g., exact API call, configuration option), use it in the GREEN phase implementation guidance instead of generic instructions
+4. **Flag anti-patterns** — if a skill warns against a pattern, ensure no task uses that anti-pattern
+5. **Note in Risk Register** — if a task must deviate from skill best practices, add it as a risk with justification
 
 Domain skills are supplementary context — they do not override CONTEXT.md requirements or RESEARCH.md findings. If a skill contradicts codebase reality (from research), prefer the research.
 

@@ -113,33 +113,8 @@ Do NOT emit any signals. Wait for human input."
             jq --argjson names "$DETECTED_NAMES" --argjson paths "$DETECTED_PATHS_JSON" \
               '.detected_skills = $names | .detected_skill_paths = $paths' "$PLAN_STATE" > "$PLAN_STATE.tmp" && mv "$PLAN_STATE.tmp" "$PLAN_STATE"
 
-            # Write DOMAIN-SKILLS.md for planner & skeptic domain context (head -200 for deeper patterns)
-            DOMAIN_SKILLS_WRITTEN=0
-            DOMAIN_SKILLS_TMP="${SESSION_DIR}/DOMAIN-SKILLS.md.tmp"
-            {
-              echo "# Domain Skills"
-              echo ""
-              echo "Skills detected for this task from skill-library."
-              echo "Use as domain reference for best practices and implementation patterns."
-              echo ""
-              while IFS= read -r dsp; do
-                dsp_name=$(echo "$DISCOVERED_SKILLS" | jq -r --arg p "$dsp" '.[] | select(.path == $p) | .name')
-                if [[ -f "$dsp" ]] && [[ -n "$dsp_name" ]]; then
-                  echo "---"
-                  echo ""
-                  echo "## Skill: $dsp_name"
-                  echo ""
-                  head -200 "$dsp" 2>/dev/null || true
-                  echo ""
-                  DOMAIN_SKILLS_WRITTEN=$((DOMAIN_SKILLS_WRITTEN + 1))
-                fi
-              done < <(echo "$DISCOVERED_SKILLS" | jq -r '.[].path')
-            } > "$DOMAIN_SKILLS_TMP"
-            if [[ $DOMAIN_SKILLS_WRITTEN -gt 0 ]]; then
-              mv "$DOMAIN_SKILLS_TMP" "${SESSION_DIR}/DOMAIN-SKILLS.md"
-            else
-              rm -f "$DOMAIN_SKILLS_TMP"
-            fi
+            # Skill-library lookup for planner & skeptic is done by the orchestrator
+            # during research→planner transition (not here). See SKILL.md "Skill-Library Lookup".
           fi
 
           read -r -d '' PROMPT << HEREDOC || true
@@ -159,20 +134,38 @@ HEREDOC
 
         "research:")
           read -r -d '' PROMPT << HEREDOC || true
-BISHX-PLAN: Research complete. Now run the PLANNING phase (iteration starts).
+BISHX-PLAN: Research complete. Now perform skill-library lookup and run the PLANNING phase.
 
 1. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, \`agent_pending\` to \`true\`
 2. Read \`${SESSION_DIR}/CONTEXT.md\` and \`${SESSION_DIR}/RESEARCH.md\`
-3. Spawn the planner agent:
+3. **Skill-library lookup for Planner and Skeptic:**
+   a. Read \`~/.claude/skill-library/INDEX.md\` — identify ALL relevant categories based on tech stack from CONTEXT.md and RESEARCH.md
+   b. For each relevant category, read \`~/.claude/skill-library/<category>/INDEX.md\` — review skill descriptions and "Use when..." triggers
+   c. **For Planner** — select skills matching the task's technologies where "Use when..." aligns with implementation needs:
+      - Implementation patterns, API usage, framework conventions, best practices
+      - EXCLUDE: review-only checklists, testing methodology skills
+   d. **For Skeptic** — select skills useful for verifying plan correctness:
+      - Anti-pattern catalogs, correctness rules, known pitfalls, security patterns
+      - EXCLUDE: step-by-step setup guides, deployment procedures
+   e. For each selected skill, note the SKILL.md path and line count (use \`wc -l\` via Bash)
+   f. **Budget: ≤2500 total lines per agent.** If over budget, drop least relevant skills first.
+   g. Write \`${SESSION_DIR}/PLANNER-SKILLS.md\`:
+      \`\`\`
+      # Planner Skills
+      Read these FULL SKILL.md files before creating the plan. Budget: ≤2500 lines.
+      1. \`path/to/SKILL.md\` (N lines) — brief description
+      \`\`\`
+   h. Write \`${SESSION_DIR}/SKEPTIC-SKILLS.md\` (same format, different selection)
+   i. Skills may overlap between planner and skeptic — that's fine
+4. Spawn the planner agent:
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<CONTEXT.md + RESEARCH.md content>)
    \`\`\`
-   Pass both files' content in the prompt. The planner creates a detailed, TDD-embedded, one-shot-executable implementation plan.
-   If \`${SESSION_DIR}/DOMAIN-SKILLS.md\` exists, also read it and include its content in the planner's prompt for domain-specific best practices and implementation patterns.
-4. When planner completes: set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
-5. Create directory \`${SESSION_DIR}/iterations/01/\` (use current iteration number, zero-padded)
-6. Write the planner's output to \`${SESSION_DIR}/iterations/01/PLAN.md\`
-7. Emit \`<bishx-plan-done>\`
+   Pass both files' content in the prompt. Also tell the planner: "Read the skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` before creating the plan."
+5. When planner completes: set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
+6. Create directory \`${SESSION_DIR}/iterations/01/\` (use current iteration number, zero-padded)
+7. Write the planner's output to \`${SESSION_DIR}/iterations/01/PLAN.md\`
+8. Emit \`<bishx-plan-done>\`
 HEREDOC
           ;;
 
@@ -207,7 +200,7 @@ BISHX-PLAN: Plan created. Complexity tier is SMALL — running lite parallel rev
 1. Update \`${SESSION_DIR}/state.json\`: set \`pipeline_actor\` to \`"parallel-review"\`, \`agent_pending\` to \`true\`
 2. Read the plan from \`${SESSION_DIR}/iterations/${ITER_DIR}/PLAN.md\` and \`${SESSION_DIR}/CONTEXT.md\`.
 3. Launch ONLY these 2 review actors IN PARALLEL (prepend OUTPUT_PATH to each prompt — agents write reports to disk themselves):
-   - Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SKEPTIC-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md summary + DOMAIN-SKILLS.md content if exists — tell Skeptic to verify plan follows these domain best practices>)
+   - Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SKEPTIC-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md summary> + "Read the skill files listed in ${SESSION_DIR}/SKEPTIC-SKILLS.md before reviewing (if file exists)")
    - Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/COMPLETENESS-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md content>)
 4. When ALL actors complete: verify report files exist via Glob("${SESSION_DIR}/iterations/${ITER_DIR}/*-REPORT.md"). If any missing — warn user.
 5. Set \`agent_pending\` to \`false\` in \`${SESSION_DIR}/state.json\`
@@ -225,7 +218,7 @@ BISHX-PLAN: Plan created. Now run PARALLEL REVIEW phase.
    Prepend OUTPUT_PATH to each prompt — agents write reports to disk themselves via Write tool.
 
    Always-on actors:
-   - Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SKEPTIC-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md summary + DOMAIN-SKILLS.md content if exists — tell Skeptic to verify plan follows these domain best practices>)
+   - Task(subagent_type="bishx:skeptic", model="opus", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/SKEPTIC-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md summary> + "Read the skill files listed in ${SESSION_DIR}/SKEPTIC-SKILLS.md before reviewing (if file exists)")
    - Task(subagent_type="bishx:tdd-reviewer", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/TDD-REPORT.md\n\n" + <PLAN.md content>)
    - Task(subagent_type="bishx:completeness-validator", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/COMPLETENESS-REPORT.md\n\n" + <PLAN.md content + CONTEXT.md content>)
    - Task(subagent_type="bishx:integration-validator", model="sonnet", prompt="OUTPUT_PATH: ${SESSION_DIR}/iterations/${ITER_DIR}/INTEGRATION-REPORT.md\n\n" + <PLAN.md content>)
@@ -344,7 +337,7 @@ The Critic determined the plan is too large or spans multiple bounded contexts a
    b. If human overrides, continue with the current plan as-is
 6. Update \`${SESSION_DIR}/CONTEXT.md\` with the split decision
 7. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-8. Set \`agent_pending\` to \`true\` in \`${SESSION_DIR}/state.json\`. Spawn the planner with updated scope. If \`${SESSION_DIR}/DOMAIN-SKILLS.md\` exists, include its content in the planner's prompt. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md." When planner completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
+8. Set \`agent_pending\` to \`true\` in \`${SESSION_DIR}/state.json\`. Spawn the planner with updated scope. Tell the planner: "Read the skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists). Do NOT break items listed in VERIFIED_ITEMS.md." When planner completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -360,7 +353,7 @@ The Critic needs human guidance before continuing.
 4. After receiving human input, update \`${SESSION_DIR}/CONTEXT.md\` with the new decisions
 5. Then spawn the researcher if NEEDS_RE_RESEARCH is also flagged, otherwise go straight to planner
 6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-7. Set \`agent_pending\` to \`true\` before spawning any agent. If spawning planner, also read \`${SESSION_DIR}/DOMAIN-SKILLS.md\` (if exists) and include its content in the planner's prompt. Continue the pipeline as normal after human input is incorporated. When agent completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
+7. Set \`agent_pending\` to \`true\` before spawning any agent. If spawning planner, tell it to read skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists). Continue the pipeline as normal after human input is incorporated. When agent completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -395,7 +388,7 @@ The Critic flagged NEEDS_RE_RESEARCH. Run targeted research first.
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<all feedback + research + context>)
    \`\`\`
-   If \`${SESSION_DIR}/DOMAIN-SKILLS.md\` exists, also include its content in the planner's prompt.
+   Tell the planner to read skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists).
    Tell the planner: "Address EVERY issue from prior reports. Do NOT break items listed in VERIFIED_ITEMS.md. Include a Revision Notes section."
 7. When planner completes: set \`agent_pending\` to \`false\`
 8. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
@@ -425,7 +418,7 @@ BISHX-PLAN: Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_ITER}).
    \`\`\`
    Task(subagent_type="bishx:planner", model="opus", prompt=<all available feedback + context + research>)
    \`\`\`
-   If \`${SESSION_DIR}/DOMAIN-SKILLS.md\` exists, also include its content in the planner's prompt.
+   Tell the planner to read skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists).
    Tell the planner: "This is iteration ${NEW_ITER}. Address EVERY issue from the available review reports and the Critic report. Do NOT break items listed in VERIFIED_ITEMS.md. Include a Revision Notes section at the top listing each issue and how it was addressed. Do not silently ignore feedback."
 3. When planner completes: set \`agent_pending\` to \`false\` in state.json.
 4. Create directory \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
@@ -454,7 +447,7 @@ The Critic needs human guidance before continuing.
 4. After receiving human input, update \`${SESSION_DIR}/CONTEXT.md\` with the new decisions
 5. Then spawn the researcher if NEEDS_RE_RESEARCH is also flagged, otherwise go straight to planner
 6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`
-7. Set \`agent_pending\` to \`true\` before spawning any agent. If spawning planner, also read \`${SESSION_DIR}/DOMAIN-SKILLS.md\` (if exists) and include its content in the planner's prompt. Continue the pipeline as normal after human input is incorporated. When agent completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
+7. Set \`agent_pending\` to \`true\` before spawning any agent. If spawning planner, tell it to read skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists). Continue the pipeline as normal after human input is incorporated. When agent completes, set \`agent_pending\` to \`false\`. Emit \`<bishx-plan-done>\`
 
 Do NOT emit any signals until human responds.
 HEREDOC
@@ -482,7 +475,7 @@ Fundamental issues require re-research.
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/CRITIC-REPORT.md\`
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/DRYRUN-REPORT.md\` (if exists)
    - \`${SESSION_DIR}/iterations/${OLD_ITER_DIR}/VERIFIED_ITEMS.md\` (if exists)
-5. Set \`agent_pending\` to \`true\` in state.json. Spawn the planner agent with all available context. If \`${SESSION_DIR}/DOMAIN-SKILLS.md\` exists, include its content in the planner's prompt. Tell the planner: "Do NOT break items listed in VERIFIED_ITEMS.md."
+5. Set \`agent_pending\` to \`true\` in state.json. Spawn the planner agent with all available context. Tell the planner: "Read the skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists). Do NOT break items listed in VERIFIED_ITEMS.md."
 6. When planner completes: set \`agent_pending\` to \`false\`
 7. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 8. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
@@ -524,7 +517,7 @@ BISHX-PLAN: Dry-run FAILED. Plan needs REVISION (iteration ${NEW_ITER} of ${MAX_
    - \`VERIFIED_ITEMS.md\` (if exists)
    Also read \`${SESSION_DIR}/CONTEXT.md\` and \`${SESSION_DIR}/RESEARCH.md\`
 2. Focus on the DRYRUN-REPORT issues — these are executability problems the simulator found. Do NOT break items listed in VERIFIED_ITEMS.md.
-3. Spawn the planner agent with all available feedback. If \`${SESSION_DIR}/DOMAIN-SKILLS.md\` exists, include its content in the planner's prompt.
+3. Spawn the planner agent with all available feedback. Tell the planner to read skill files listed in \`${SESSION_DIR}/PLANNER-SKILLS.md\` (if exists).
 4. Create \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/\`
 5. Write output to \`${SESSION_DIR}/iterations/${NEW_ITER_DIR}/PLAN.md\`
 6. Update \`${SESSION_DIR}/state.json\`: set \`phase\` to \`"pipeline"\`, \`pipeline_actor\` to \`"planner"\`, clear \`flags\`
@@ -590,7 +583,7 @@ HEREDOC
             PROMPT="BISHX-PLAN: You are in the RESEARCH phase. Spawn the researcher agent and write results to ${SESSION_DIR}/RESEARCH.md. When done, update state.json and emit <bishx-plan-done>."
             ;;
           "pipeline:planner")
-            PROMPT="BISHX-PLAN: You are in the PLANNING phase. Spawn the planner agent and write PLAN.md. If ${SESSION_DIR}/DOMAIN-SKILLS.md exists, include its content in the planner's prompt. When done, update state.json and emit <bishx-plan-done>."
+            PROMPT="BISHX-PLAN: You are in the PLANNING phase. Spawn the planner agent and write PLAN.md. Tell the planner to read skill files listed in ${SESSION_DIR}/PLANNER-SKILLS.md (if exists). When done, update state.json and emit <bishx-plan-done>."
             ;;
           "pipeline:parallel-review")
             # Check if reports already exist on disk (agents write directly)
@@ -615,7 +608,7 @@ HEREDOC
             elif [[ $PR_FOUND -gt 0 ]]; then
               PROMPT="BISHX-PLAN: $PR_FOUND/$PR_TOTAL review reports written to $PR_REPORTS_DIR. Some agents may still be running. Check remaining reports and wait for completion. When ALL reports exist, set agent_pending to false and emit <bishx-plan-done>."
             else
-              PROMPT="BISHX-PLAN: You are in PARALLEL REVIEW. Launch all parallel actors (with OUTPUT_PATH for each) and let them write reports to disk. For Skeptic, also include ${SESSION_DIR}/DOMAIN-SKILLS.md content if it exists. When done, verify all files exist, update state.json and emit <bishx-plan-done>."
+              PROMPT="BISHX-PLAN: You are in PARALLEL REVIEW. Launch all parallel actors (with OUTPUT_PATH for each) and let them write reports to disk. Tell Skeptic to read skill files listed in ${SESSION_DIR}/SKEPTIC-SKILLS.md (if exists). When done, verify all files exist, update state.json and emit <bishx-plan-done>."
             fi
             ;;
           "pipeline:critic")
