@@ -127,7 +127,7 @@ Run modes:
 
 ```
 bishx/
-├── .claude-plugin/plugin.json    # Plugin manifest (v2.12.0)
+├── .claude-plugin/plugin.json    # Plugin manifest
 ├── README.md
 ├── agents/                       # Agent role definitions (planning pipeline)
 │   ├── completeness-validator.md # Requirements traceability checker
